@@ -12,7 +12,6 @@ async function connectDB() {
     logger.info('✅ MongoDB connected successfully');
   } catch (error) {
     logger.error('❌ MongoDB connection failed:', error.message);
-    process.exit(1);
   }
 
   mongoose.connection.on('error', (err) => {
