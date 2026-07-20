@@ -1,4 +1,4 @@
-﻿const logger = require('../config/logger');
+const logger = require('../config/logger');
 const geminiService = require('./geminiService');
 const { extractExifData } = require('../utils/exifParser');
 const { buildImageVerificationPrompt } = require('../prompts/imageVerification');
@@ -33,7 +33,7 @@ async function verifyImage(imageBuffer, mimeType, originalFilename, selectedLang
   });
 
   logger.info('Step 3: Analyzing metadata integrity');
-  const metadataAnalysis = analyzeMetadata(exifData);
+  const metadataAnalysis = analyzeMetadata(exifData, responseLanguage);
 
   const metadataInfoParts = [exifData.summary];
   if (metadataAnalysis.notes.length > 0) {
@@ -46,14 +46,13 @@ async function verifyImage(imageBuffer, mimeType, originalFilename, selectedLang
   const imagePrompt = buildImageVerificationPrompt(metadataInfo, responseLanguage);
 
   let geminiResult;
-  let usedFallback = false;
-  let providerWarning = null;
 
   try {
     geminiResult = await geminiService.analyzeImage(
       imageBuffer,
       mimeType,
-      imagePrompt
+      imagePrompt,
+      selectedLanguage
     );
 
     logger.info('Step 5: Gemini image analysis complete', {
@@ -61,20 +60,11 @@ async function verifyImage(imageBuffer, mimeType, originalFilename, selectedLang
       confidence: geminiResult.confidence,
     });
   } catch (error) {
-    usedFallback = true;
-    providerWarning = buildProviderWarning(error);
-    logger.warn('Gemini unavailable; using metadata-only fallback for image verification', {
-      warning: providerWarning,
-    });
-    geminiResult = buildMetadataOnlyImageResult(
-      exifData,
-      metadataAnalysis,
-      originalFilename,
-      responseLanguage,
-      providerWarning
-    );
+    logger.error('Gemini image analysis failed:', error);
+    return geminiService.formatGeminiError(error, false, responseLanguage);
   }
 
+  const usedFallback = false;
   const confidence = geminiResult.confidence || 0;
 
   const result = {
@@ -92,9 +82,9 @@ async function verifyImage(imageBuffer, mimeType, originalFilename, selectedLang
     language: responseLanguage,
     detectedLanguage: responseLanguage,
     responseLanguage,
-    apiWorking: !usedFallback,
-    providerStatus: usedFallback ? 'degraded' : 'ok',
-    providerWarning,
+    apiWorking: true,
+    providerStatus: 'ok',
+    providerWarning: null,
     processingTime: getProcessingTime(startTime),
     _exifData: exifData,
     _originalFilename: originalFilename,
@@ -110,28 +100,34 @@ async function verifyImage(imageBuffer, mimeType, originalFilename, selectedLang
   return result;
 }
 
-function buildProviderWarning(error) {
+function buildProviderWarning(error, responseLanguage) {
+  const isHi = responseLanguage === 'hi';
   if (error?.serviceBlocked) {
-    return 'Gemini API is blocked for the configured Google Cloud project/key. Enable Generative Language API or rotate GEMINI_API_KEY.';
+    return isHi
+      ? 'कॉन्फ़िगर की गई Google Cloud परियोजना/कुंजी के लिए जेमिनी एपीआई अवरुद्ध है। जनरेटिव लैंग्वेज एपीआई सक्षम करें या जेमिनी एपीआई कुंजी बदलें।'
+      : 'Gemini API is blocked for the configured Google Cloud project/key. Enable Generative Language API or rotate GEMINI_API_KEY.';
   }
-  return 'Gemini Vision is temporarily unavailable. Returned metadata-only fallback result.';
+  return isHi
+    ? 'जेमिनी विज़न अस्थायी रूप से अनुपलब्ध है। केवल मेटाडेटा परिणाम लौटाया गया।'
+    : 'Gemini Vision is temporarily unavailable. Returned metadata-only fallback result.';
 }
 
-function analyzeMetadata(exifData) {
+function analyzeMetadata(exifData, responseLanguage) {
   const notes = [];
   let integrity = 'UNKNOWN';
+  const isHi = responseLanguage === 'hi';
 
   if (!exifData.available) {
-    notes.push('No EXIF metadata found - metadata may have been stripped');
+    notes.push(isHi ? 'कोई EXIF मेटाडेटा नहीं मिला - मेटाडेटा हटाया गया हो सकता है' : 'No EXIF metadata found - metadata may have been stripped');
     integrity = 'STRIPPED';
     return { integrity, notes };
   }
 
   if (exifData.camera) {
-    notes.push(`Captured by ${exifData.camera}`);
+    notes.push(isHi ? `${exifData.camera} द्वारा कैप्चर किया गया` : `Captured by ${exifData.camera}`);
     integrity = 'INTACT';
   } else {
-    notes.push('No camera information - could be a screenshot, download, or AI-generated');
+    notes.push(isHi ? 'कैमरे की कोई जानकारी नहीं - यह स्क्रीनशॉट, डाउनलोड या AI-जनित हो सकता है' : 'No camera information - could be a screenshot, download, or AI-generated');
   }
 
   if (exifData.software) {
@@ -140,24 +136,24 @@ function analyzeMetadata(exifData) {
     const aiSoftware = ['stable diffusion', 'midjourney', 'dall-e', 'dalle', 'comfyui', 'automatic1111', 'firefly'];
 
     if (aiSoftware.some((a) => sw.includes(a))) {
-      notes.push(`Created with AI tool: ${exifData.software}`);
+      notes.push(isHi ? `AI टूल से बनाया गया: ${exifData.software}` : `Created with AI tool: ${exifData.software}`);
       integrity = 'MODIFIED';
     } else if (editingSoftware.some((e) => sw.includes(e))) {
-      notes.push(`Edited with: ${exifData.software}`);
+      notes.push(isHi ? `इससे संपादित: ${exifData.software}` : `Edited with: ${exifData.software}`);
       integrity = 'MODIFIED';
     } else {
-      notes.push(`Software: ${exifData.software}`);
+      notes.push(isHi ? `सॉफ्टवेयर: ${exifData.software}` : `Software: ${exifData.software}`);
     }
   }
 
   if (exifData.dateTime) {
-    notes.push(`Original date: ${exifData.dateTime}`);
+    notes.push(isHi ? `मूल तिथि: ${exifData.dateTime}` : `Original date: ${exifData.dateTime}`);
   } else {
-    notes.push('No original date - timestamp may have been removed');
+    notes.push(isHi ? 'कोई मूल तिथि नहीं - टाइमस्टैम्प हटाया गया हो सकता है' : 'No original date - timestamp may have been removed');
   }
 
   if (exifData.gps) {
-    notes.push(`GPS coordinates present: ${exifData.gps.lat}, ${exifData.gps.lng}`);
+    notes.push(isHi ? `GPS निर्देशांक मौजूद हैं: ${exifData.gps.lat}, ${exifData.gps.lng}` : `GPS coordinates present: ${exifData.gps.lat}, ${exifData.gps.lng}`);
     if (integrity === 'UNKNOWN') integrity = 'INTACT';
   }
 
@@ -167,14 +163,14 @@ function analyzeMetadata(exifData) {
 
   if (!exifData.camera && !exifData.software && !exifData.dateTime) {
     integrity = 'STRIPPED';
-    notes.push('Minimal metadata - likely stripped during upload or sharing');
+    notes.push(isHi ? 'न्यूनतम मेटाडेटा - संभवतः अपलोड या शेयरिंग के दौरान हटाया गया' : 'Minimal metadata - likely stripped during upload or sharing');
   }
 
   return { integrity, notes };
 }
 
 function buildMetadataOnlyImageResult(exifData, metadataAnalysis, originalFilename, responseLanguage, providerWarning) {
-  const signals = collectImageSignals(exifData, metadataAnalysis, originalFilename);
+  const signals = collectImageSignals(exifData, metadataAnalysis, originalFilename, responseLanguage);
   const aiProbability = clamp(signals.aiProbability, 0, 100);
   const manipulationProbability = clamp(signals.manipulationProbability, 0, 100);
   const deepfakeProbability = 0;
@@ -202,11 +198,12 @@ function buildMetadataOnlyImageResult(exifData, metadataAnalysis, originalFilena
   };
 }
 
-function collectImageSignals(exifData, metadataAnalysis, originalFilename) {
+function collectImageSignals(exifData, metadataAnalysis, originalFilename, responseLanguage) {
   const findings = [];
   let aiProbability = 20;
   let manipulationProbability = metadataAnalysis.integrity === 'MODIFIED' ? 55 : 25;
   let strongSignal = false;
+  const isHi = responseLanguage === 'hi';
 
   const software = (exifData.software || '').toLowerCase();
   const filename = (originalFilename || '').toLowerCase();
@@ -217,26 +214,26 @@ function collectImageSignals(exifData, metadataAnalysis, originalFilename) {
     aiProbability = 85;
     manipulationProbability = Math.max(manipulationProbability, 45);
     strongSignal = true;
-    findings.push('AI-generation signal found in metadata or filename.');
+    findings.push(isHi ? 'मेटाडेटा या फ़ाइल नाम में AI-जनरेशन संकेत मिला।' : 'AI-generation signal found in metadata or filename.');
   }
 
   if (editTerms.some((term) => software.includes(term) || filename.includes(term))) {
     manipulationProbability = 75;
     strongSignal = true;
-    findings.push('Editing/manipulation signal found in metadata or filename.');
+    findings.push(isHi ? 'मेटाडेटा या फ़ाइल नाम में संपादन/छेड़छाड़ संकेत मिला।' : 'Editing/manipulation signal found in metadata or filename.');
   }
 
   if (exifData.camera && exifData.dateTime && !software) {
     aiProbability = 15;
     manipulationProbability = 20;
     strongSignal = true;
-    findings.push('Camera and capture timestamp metadata are present.');
+    findings.push(isHi ? 'कैमरा और कैप्चर टाइमस्टैम्प मेटाडेटा मौजूद हैं।' : 'Camera and capture timestamp metadata are present.');
   }
 
   if (metadataAnalysis.integrity === 'STRIPPED') {
     aiProbability = Math.max(aiProbability, 45);
     manipulationProbability = Math.max(manipulationProbability, 45);
-    findings.push('Metadata is stripped, which is suspicious but not definitive.');
+    findings.push(isHi ? 'मेटाडेटा हटा दिया गया है, जो संदिग्ध है लेकिन अंतिम नहीं।' : 'Metadata is stripped, which is suspicious but not definitive.');
   }
 
   return { aiProbability, manipulationProbability, findings, strongSignal };

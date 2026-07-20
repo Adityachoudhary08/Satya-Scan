@@ -1,12 +1,9 @@
-/**
- * Prompt templates for image authenticity verification via Gemini Vision.
- * NO OCR. NO web search. NO Tavily. Pure visual + metadata analysis.
- */
+const { buildResponseLanguageInstruction } = require('../utils/helpers');
 
 function buildImageVerificationPrompt(metadataInfo, language) {
-  const languageInstruction = language === 'hi'
-    ? 'You MUST respond entirely in Hindi (Devanagari script). All text fields including verdict, findings, and summary must be in Hindi.'
-    : 'You MUST respond entirely in English.';
+  const languageInstruction = buildResponseLanguageInstruction(language);
+
+  const styleLanguage = language === 'hi' ? 'natural Hindi (Devanagari script)' : 'plain English';
 
   return `You are an expert digital forensics analyst writing for a general audience. Analyze the provided image for signs of AI generation, deepfake manipulation, or digital tampering.
 
@@ -14,7 +11,7 @@ IMAGE METADATA:
 ${metadataInfo || 'No EXIF metadata available for this image.'}
 
 WRITING STYLE RULES — FOLLOW THESE STRICTLY:
-- Write every finding and the summary in plain English that a non-expert can understand.
+- Write every finding and the summary in ${styleLanguage} that a non-expert can understand.
 - Each finding should be one clear, specific sentence — no numbered internal references.
 - The summary should read like a human expert's conclusion, not a computer report.
 - Avoid jargon where possible. When technical terms are needed, briefly explain them.
@@ -63,11 +60,11 @@ RESPONSE FORMAT:
   "manipulationProbability": <number 0-100, probability image has been manipulated>,
   "metadataIntegrity": "INTACT | SUSPICIOUS | STRIPPED | MODIFIED | UNKNOWN",
   "findings": [
-    "<plain-English observation — one specific thing noticed, written for a general reader>",
-    "<another plain-English observation>",
+    "<observation in ${styleLanguage} — one specific thing noticed, written for a general reader>",
+    "<another observation in ${styleLanguage}>",
     "<etc. — each finding is a standalone sentence, no numbered internal references>"
   ],
-  "summary": "<2–3 plain-English sentences summarising the overall conclusion, written like a human expert — NOT a computer log>"
+  "summary": "<2–3 sentences in ${styleLanguage} summarising the overall conclusion, written like a human expert — NOT a computer log>"
 }
 
 RULES:

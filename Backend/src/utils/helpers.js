@@ -181,6 +181,18 @@ function calculateSourceCredibility(sources) {
   return Math.round(Math.min(100, ratio * 85 + volumeBonus));
 }
 
+/**
+ * Shared function to build prompt language instruction.
+ */
+function buildResponseLanguageInstruction(selectedLanguage) {
+  const targetLang = selectedLanguage === 'hi' ? 'Hindi' : 'English';
+  return `Generate the ENTIRE response in ${targetLang}.
+Do not mix English and Hindi.
+If selectedLanguage is 'hi', write fluent natural Hindi.
+Do NOT translate publisher names, website names, URLs, official organization names, or proper nouns.
+All JSON keys and enum values (such as "verdict", "stance", "politicalBias", "metadataIntegrity") must remain strictly in English as defined in the schema and MUST NOT be translated, but every human-readable value, explanation, reasoning, description, note, summary, recommendation, and finding must be localized into ${targetLang}.`;
+}
+
 module.exports = {
   resolveLanguage,
   parseGeminiJSON,
@@ -195,4 +207,5 @@ module.exports = {
   extractDomain,
   deduplicateByKey,
   calculateSourceCredibility,
+  buildResponseLanguageInstruction,
 };

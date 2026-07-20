@@ -35,8 +35,15 @@ const VERDICT_CONFIG = {
   INCONCLUSIVE:        { color: '#4E5D4C', bg: 'rgba(78, 93, 76, 0.12)', border: 'rgba(78, 93, 76, 0.22)', Icon: ShieldQuestion, label: 'Inconclusive',       microcopy: 'The analysis could not reach a definitive conclusion.' },
 };
 
-function getVerdict(v) {
-  return VERDICT_CONFIG[v] || { color: '#4E5D4C', bg: 'rgba(78, 93, 76, 0.12)', border: 'rgba(78, 93, 76, 0.22)', Icon: ShieldQuestion, label: v || 'Unknown', microcopy: 'Result unclear.' };
+function getVerdict(v, t) {
+  const label = t ? t(`verdict.${v}`, VERDICT_CONFIG[v]?.label || v) : (VERDICT_CONFIG[v]?.label || v);
+  const microcopy = t ? t(`verdict.microcopy.${v}`, VERDICT_CONFIG[v]?.microcopy || '') : (VERDICT_CONFIG[v]?.microcopy || '');
+  const base = VERDICT_CONFIG[v] || { color: '#4E5D4C', bg: 'rgba(78, 93, 76, 0.12)', border: 'rgba(78, 93, 76, 0.22)', Icon: ShieldQuestion };
+  return {
+    ...base,
+    label,
+    microcopy
+  };
 }
 
 function getReliabilityColor(score) {
@@ -45,18 +52,18 @@ function getReliabilityColor(score) {
   return '#C62828';
 }
 
-function scoreToLabel(score) {
-  if (score >= 80) return 'Strong';
-  if (score >= 60) return 'Moderate';
-  if (score >= 40) return 'Weak';
-  return 'Very Weak';
+function scoreToLabel(score, t) {
+  if (score >= 80) return t ? t('results.scoreStrong', 'Strong') : 'Strong';
+  if (score >= 60) return t ? t('results.scoreModerate', 'Moderate') : 'Moderate';
+  if (score >= 40) return t ? t('results.scoreWeak', 'Weak') : 'Weak';
+  return t ? t('results.scoreVeryWeak', 'Very Weak') : 'Very Weak';
 }
 
-function qualityLabel(score) {
-  if (score >= 80) return 'High';
-  if (score >= 60) return 'Moderate';
-  if (score >= 40) return 'Low';
-  return 'Very Low';
+function qualityLabel(score, t) {
+  if (score >= 80) return t ? t('results.qualityHigh', 'High') : 'High';
+  if (score >= 60) return t ? t('results.qualityModerate', 'Moderate') : 'Moderate';
+  if (score >= 40) return t ? t('results.qualityLow', 'Low') : 'Low';
+  return t ? t('results.qualityVeryLow', 'Very Low') : 'Very Low';
 }
 
 function splitReasoning(text) {
@@ -80,18 +87,56 @@ function getDomain(url) {
 const TIER1_PUBLISHERS = ['reuters', 'bbc', 'apnews', 'ap.org', 'pib.gov', 'who.int', 'cdc.gov', 'nih.gov', 'gov.in'];
 const TIER2_PUBLISHERS = ['ndtv', 'thehindu', 'indianexpress', 'theguardian', 'nytimes', 'washingtonpost', 'economist', 'bloomberg', 'ft.com', 'forbes', 'cnbc', 'abc', 'cbs', 'nbc'];
 
-function publisherReliability(src) {
+function publisherReliability(src, t) {
   const s = (src.source || src.url || '').toLowerCase();
-  if (TIER1_PUBLISHERS.some(k => s.includes(k))) return { label: 'Highly Trusted', color: '#2E7D32', tier: 1, reason: 'International wire service or official government source' };
-  if (TIER2_PUBLISHERS.some(k => s.includes(k))) return { label: 'Trusted', color: '#2E7D32', tier: 2, reason: 'Established national publication with editorial standards' };
-  if (src.trusted) return { label: 'Verified', color: '#2E7D32', tier: 3, reason: 'Source passed reliability checks' };
-  return { label: 'Moderate', color: '#D87D0A', tier: 4, reason: 'Source reliability not independently confirmed' };
+  let label = 'Moderate';
+  let tier = 4;
+  let reason = 'Source reliability not independently confirmed';
+  let color = '#D87D0A';
+
+  if (TIER1_PUBLISHERS.some(k => s.includes(k))) {
+    label = 'Highly Trusted';
+    tier = 1;
+    reason = 'International wire service or official government source';
+    color = '#2E7D32';
+  } else if (TIER2_PUBLISHERS.some(k => s.includes(k))) {
+    label = 'Trusted';
+    tier = 2;
+    reason = 'Established national publication with editorial standards';
+    color = '#2E7D32';
+  } else if (src.trusted) {
+    label = 'Verified';
+    tier = 3;
+    reason = 'Source passed reliability checks';
+    color = '#2E7D32';
+  }
+
+  // Localize labels if t is available
+  if (t) {
+    if (tier === 1) {
+      label = t('publisherTrust.highlyTrusted', 'Highly Trusted');
+      reason = t('publisherTrust.highlyTrustedReason', 'International wire service or official government source');
+    } else if (tier === 2) {
+      label = t('publisherTrust.trusted', 'Trusted');
+      reason = t('publisherTrust.trustedReason', 'Established national publication with editorial standards');
+    } else if (tier === 3) {
+      label = t('publisherTrust.verified', 'Verified');
+      reason = t('publisherTrust.verifiedReason', 'Source passed reliability checks');
+    } else {
+      label = t('publisherTrust.moderate', 'Moderate');
+      reason = t('publisherTrust.moderateReason', 'Source reliability not independently confirmed');
+    }
+  }
+
+  return { label, color, tier, reason };
 }
 
-function getMissingContextText(verdict, reasoning) {
+function getMissingContextText(verdict, reasoning, t) {
   const bullets = splitReasoning(reasoning);
   if (verdict === 'Misleading' || verdict === 'PARTIALLY_TRUE') {
-    const contextHints = [
+    const contextHints = t ? [
+      t('results.importantContextMissingDesc', 'The claim leaves out important facts that change how it should be understood.'),
+    ] : [
       'The claim is technically accurate but omits critical surrounding context that changes its meaning.',
       'Important time-frame details, qualifications, or conditions are absent from this claim.',
       'The statistic or fact cited is real, but applies to a different context than implied.',
@@ -101,23 +146,39 @@ function getMissingContextText(verdict, reasoning) {
   return null;
 }
 
-function getConfidenceExplanation(score, verdict, trustedCount, totalSources) {
-  const level = score >= 80 ? 'High' : score >= 60 ? 'Moderate' : score >= 40 ? 'Low' : 'Very Low';
+function getConfidenceExplanation(score, verdict, trustedCount, totalSources, t) {
+  const level = t ? t(`results.${score >= 70 ? 'highReliability' : score >= 40 ? 'moderateReliability' : 'lowReliability'}`) : (score >= 70 ? 'High Reliability' : score >= 40 ? 'Moderate Reliability' : 'Low Reliability');
   const reasons = [];
 
-  if (trustedCount >= 3) reasons.push('Multiple independent trusted publications agree');
-  else if (trustedCount >= 1) reasons.push('At least one trusted publication found');
-  else reasons.push('No established trusted publications found');
+  if (t) {
+    if (trustedCount >= 3) reasons.push(t('results.reliabilityReasons.multiTrusted'));
+    else if (trustedCount >= 1) reasons.push(t('results.reliabilityReasons.oneTrusted'));
+    else reasons.push(t('results.reliabilityReasons.noTrusted'));
 
-  if (totalSources >= 5) reasons.push('Wide evidence base across many sources');
-  else if (totalSources >= 2) reasons.push('Evidence found from multiple sources');
-  else reasons.push('Limited evidence sources available');
+    if (totalSources >= 5) reasons.push(t('results.reliabilityReasons.manyEvidence'));
+    else if (totalSources >= 2) reasons.push(t('results.reliabilityReasons.someEvidence'));
+    else reasons.push(t('results.reliabilityReasons.limitedEvidence'));
 
-  if (verdict === 'Supported' || verdict === 'True') reasons.push('No credible contradictions detected');
-  else if (verdict === 'Contradicted' || verdict === 'False') reasons.push('Credible sources actively contradict this claim');
-  else if (verdict === 'Misleading') reasons.push('Context gaps or selective framing detected');
+    if (verdict === 'Supported' || verdict === 'True') reasons.push(t('results.reliabilityReasons.noContradictions'));
+    else if (verdict === 'Contradicted' || verdict === 'False') reasons.push(t('results.reliabilityReasons.contradictions'));
+    else if (verdict === 'Misleading') reasons.push(t('results.reliabilityReasons.contextGaps'));
 
-  if (score >= 70) reasons.push('Evidence is from recent, verifiable publications');
+    if (score >= 70) reasons.push(t('results.reliabilityReasons.recentSources'));
+  } else {
+    if (trustedCount >= 3) reasons.push('Multiple independent trusted publications agree');
+    else if (trustedCount >= 1) reasons.push('At least one trusted publication found');
+    else reasons.push('No established trusted publications found');
+
+    if (totalSources >= 5) reasons.push('Wide evidence base across many sources');
+    else if (totalSources >= 2) reasons.push('Evidence found from multiple sources');
+    else reasons.push('Limited evidence sources available');
+
+    if (verdict === 'Supported' || verdict === 'True') reasons.push('No credible contradictions detected');
+    else if (verdict === 'Contradicted' || verdict === 'False') reasons.push('Credible sources actively contradict this claim');
+    else if (verdict === 'Misleading') reasons.push('Context gaps or selective framing detected');
+
+    if (score >= 70) reasons.push('Evidence is from recent, verifiable publications');
+  }
 
   return { level, reasons };
 }
@@ -234,16 +295,17 @@ function SectionHeading({ icon: Icon, children, iconColor, badge }) {
 // ─── How We Verified — Transparent Pipeline ───────────────────────────────────
 
 const PIPELINE_STEPS = [
-  { icon: FileText,   label: 'Claim Submitted',           desc: 'Your input is received and parsed for verifiable claims' },
-  { icon: Search,     label: 'Claims Extracted',           desc: 'Individual factual assertions are identified and isolated' },
-  { icon: Globe,      label: 'Trusted Sources Retrieved',  desc: 'Relevant articles pulled from verified publication databases' },
-  { icon: GitCompare, label: 'Cross-Source Comparison',    desc: 'Claims matched against retrieved evidence across all sources' },
-  { icon: AlertTriangle, label: 'Contradictions Detected', desc: 'Conflicting reports identified and flagged for review' },
-  { icon: Scale,      label: 'Evidence Weighted',          desc: 'Sources scored by publisher trust tier and publication recency' },
-  { icon: ShieldCheck,label: 'Final Verdict Issued',       desc: 'Independent conclusion drawn from the full evidence body' },
+  { icon: FileText,   labelKey: 'results.pipeline.claimSubmitted',           fallbackLabel: 'Claim Submitted',           descKey: 'results.pipeline.claimSubmittedDesc',           fallbackDesc: 'Your input is received and parsed for verifiable claims' },
+  { icon: Search,     labelKey: 'results.pipeline.claimsExtracted',          fallbackLabel: 'Claims Extracted',          descKey: 'results.pipeline.claimsExtractedDesc',          fallbackDesc: 'Individual factual assertions are identified and isolated' },
+  { icon: Globe,      labelKey: 'results.pipeline.sourcesRetrieved',         fallbackLabel: 'Trusted Sources Retrieved', descKey: 'results.pipeline.sourcesRetrievedDesc',         fallbackDesc: 'Relevant articles pulled from verified publication databases' },
+  { icon: GitCompare, labelKey: 'results.pipeline.crossSource',              fallbackLabel: 'Cross-Source Comparison',    descKey: 'results.pipeline.crossSourceDesc',              fallbackDesc: 'Claims matched against retrieved evidence across all sources' },
+  { icon: AlertTriangle, labelKey: 'results.pipeline.contradictions',        fallbackLabel: 'Contradictions Detected',    descKey: 'results.pipeline.contradictionsDesc',           fallbackDesc: 'Conflicting reports identified and flagged for review' },
+  { icon: Scale,      labelKey: 'results.pipeline.evidenceWeighted',         fallbackLabel: 'Evidence Weighted',         descKey: 'results.pipeline.evidenceWeightedDesc',         fallbackDesc: 'Sources scored by publisher trust tier and publication recency' },
+  { icon: ShieldCheck,labelKey: 'results.pipeline.verdictIssued',            fallbackLabel: 'Final Verdict Issued',       descKey: 'results.pipeline.verdictIssuedDesc',            fallbackDesc: 'Independent conclusion drawn from the full evidence body' },
 ];
 
 function HowWeVerified() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   return (
@@ -260,10 +322,10 @@ function HowWeVerified() {
       >
         <div className="flex items-center gap-2">
           <Eye size={15} style={{ color: '#768E56' }} strokeWidth={2} />
-          <span className="text-sm font-semibold text-[#232B1B]">How We Verified This</span>
+          <span className="text-sm font-semibold text-[#232B1B]">{t('results.howWeVerified', 'How We Verified This')}</span>
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full ml-1"
             style={{ background: 'rgba(118,142,86,0.12)', color: '#232B1B', border: '1px solid rgba(118,142,86,0.25)' }}>
-            Transparent Methodology
+            {t('results.transparentMethodology', 'Transparent Methodology')}
           </span>
         </div>
         {open
@@ -283,7 +345,7 @@ function HowWeVerified() {
           >
             <div className="px-5 pb-5 pt-2" style={{ borderTop: '1px solid #C3CC9B' }}>
               <p className="text-xs text-[#5C6650] mb-4 leading-relaxed">
-                SatyaScan uses a multi-stage evidence pipeline — not a single AI response. Every verdict is built on independently retrieved sources.
+                {t('results.howWeVerifiedDesc', 'SatyaScan uses a multi-stage evidence pipeline — not a single AI response. Every verdict is built on independently retrieved sources.')}
               </p>
               <div className="relative">
                 {/* Vertical connector line */}
@@ -294,6 +356,8 @@ function HowWeVerified() {
                   {PIPELINE_STEPS.map((step, i) => {
                     const Icon = step.icon;
                     const isLast = i === PIPELINE_STEPS.length - 1;
+                    const label = t(step.labelKey, step.fallbackLabel);
+                    const desc = t(step.descKey, step.fallbackDesc);
                     return (
                       <motion.div
                         key={i}
@@ -313,9 +377,9 @@ function HowWeVerified() {
                         </div>
                         <div className="flex-1 pt-0.5 pb-1">
                           <p className={`text-xs font-semibold mb-0.5 ${isLast ? 'text-[#768E56] font-bold' : 'text-[#232B1B]/85'}`}>
-                            {step.label}
+                            {label}
                           </p>
-                          <p className="text-[11px] text-[#5C6650] leading-relaxed">{step.desc}</p>
+                          <p className="text-[11px] text-[#5C6650] leading-relaxed">{desc}</p>
                         </div>
                       </motion.div>
                     );
@@ -350,6 +414,7 @@ function PublisherPill({ name, tier }) {
 }
 
 function EvidenceConsensus({ claims }) {
+  const { t } = useTranslation();
   const allSrc = claims.flatMap(c => c.sources || []);
   const seenUrls = new Set();
   const unique = allSrc.filter(s => {
@@ -372,9 +437,9 @@ function EvidenceConsensus({ claims }) {
       className="rounded-2xl p-5"
       style={{ background: '#E4DFB5', border: '1px solid #C3CC9B' }}
     >
-      <SectionHeading icon={Layers} badge={`${unique.length} sources`}>Evidence Consensus</SectionHeading>
+      <SectionHeading icon={Layers} badge={`${unique.length} ${t('results.sources', 'sources')}`}>{t('results.evidenceConsensus', 'Evidence Consensus')}</SectionHeading>
       <p className="text-[11px] text-[#5C6650] mb-4 leading-relaxed">
-        See at a glance whether trusted, independent publications agree or disagree with this claim.
+        {t('results.evidenceConsensusDesc', 'See at a glance whether trusted, independent publications agree or disagree with this claim.')}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -383,19 +448,19 @@ function EvidenceConsensus({ claims }) {
           <div className="flex items-center gap-2 mb-3">
             <CheckCircle2 size={13} style={{ color: '#2E7D32' }} strokeWidth={2.5} />
             <span className="text-xs font-bold" style={{ color: '#2E7D32' }}>
-              Supporting ({supporting.length})
+              {t('results.supporting', 'Supporting')} ({supporting.length})
             </span>
           </div>
           {supporting.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {supporting.slice(0, 8).map((s, i) => {
-                const pub = publisherReliability(s);
+                const pub = publisherReliability(s, t);
                 const name = s.source || getDomain(s.url) || 'Source';
                 return <PublisherPill key={i} name={name} tier={pub.tier} />;
               })}
             </div>
           ) : (
-            <p className="text-[11px] text-[#5C6650]/60 italic">No established trusted publications found</p>
+            <p className="text-[11px] text-[#5C6650]/60 italic">{t('results.noEstablishedTrusted', 'No established trusted publications found')}</p>
           )}
         </div>
 
@@ -404,19 +469,19 @@ function EvidenceConsensus({ claims }) {
           <div className="flex items-center gap-2 mb-3">
             <ShieldQuestion size={13} className="text-[#5C6650]" strokeWidth={2} />
             <span className="text-xs font-bold text-[#5C6650]">
-              Unverified Sources ({uncertain.length})
+              {t('results.unverifiedSources', 'Unverified Sources')} ({uncertain.length})
             </span>
           </div>
           {uncertain.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {uncertain.slice(0, 8).map((s, i) => {
-                const pub = publisherReliability(s);
+                const pub = publisherReliability(s, t);
                 const name = s.source || getDomain(s.url) || 'Unknown';
                 return <PublisherPill key={i} name={name} tier={pub.tier} />;
               })}
             </div>
           ) : (
-            <p className="text-[11px] text-[#5C6650]/60 italic">All retrieved sources passed trust checks</p>
+            <p className="text-[11px] text-[#5C6650]/60 italic">{t('results.allSourcesPassed', 'All retrieved sources passed trust checks')}</p>
           )}
         </div>
       </div>
@@ -427,7 +492,8 @@ function EvidenceConsensus({ claims }) {
 // ─── Can I Trust This? Card ───────────────────────────────────────────────────
 
 function TrustCard({ score, verdict, trustedCount, totalSources }) {
-  const { level, reasons } = getConfidenceExplanation(score, verdict, trustedCount, totalSources);
+  const { t } = useTranslation();
+  const { level, reasons } = getConfidenceExplanation(score, verdict, trustedCount, totalSources, t);
   const isHigh = score >= 70;
   const isMed = score >= 40 && score < 70;
   const color = getReliabilityColor(score);
@@ -450,10 +516,10 @@ function TrustCard({ score, verdict, trustedCount, totalSources }) {
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-sm font-bold text-[#232B1B]">Can I trust this result?</h3>
+            <h3 className="text-sm font-bold text-[#232B1B]">{t('results.canITrustThis', 'Can I trust this result?')}</h3>
           </div>
           <p className="text-base font-black mb-2.5" style={{ color }}>
-            {level} Reliability
+            {level}
           </p>
           <ul className="space-y-1.5">
             {reasons.map((r, i) => (
@@ -474,7 +540,8 @@ function TrustCard({ score, verdict, trustedCount, totalSources }) {
 // ─── Missing Context Section ──────────────────────────────────────────────────
 
 function MissingContext({ verdict, reasoning }) {
-  const contextPoints = getMissingContextText(verdict, reasoning);
+  const { t } = useTranslation();
+  const contextPoints = getMissingContextText(verdict, reasoning, t);
   if (!contextPoints || contextPoints.length === 0) return null;
 
   return (
@@ -491,9 +558,9 @@ function MissingContext({ verdict, reasoning }) {
           <Info size={14} style={{ color: '#D87D0A' }} strokeWidth={2} />
         </div>
         <div className="flex-1">
-          <h3 className="text-sm font-bold text-[#D87D0A] mb-1">Important Context Missing</h3>
+          <h3 className="text-sm font-bold text-[#D87D0A] mb-1">{t('results.importantContextMissing', 'Important Context Missing')}</h3>
           <p className="text-xs text-[#5C6650] mb-3 leading-relaxed">
-            This claim leaves out important facts that change how it should be understood.
+            {t('results.contextMissingDesc', 'This claim leaves out important facts that change how it should be understood.')}
           </p>
           <ul className="space-y-2">
             {contextPoints.slice(0, 3).map((pt, i) => (
@@ -512,13 +579,14 @@ function MissingContext({ verdict, reasoning }) {
 // ─── Confidence Explanation ───────────────────────────────────────────────────
 
 function ConfidenceExplainer({ score, verdict, trustedCount, totalSources }) {
-  const { level, reasons } = getConfidenceExplanation(score, verdict, trustedCount, totalSources);
+  const { t } = useTranslation();
+  const { level, reasons } = getConfidenceExplanation(score, verdict, trustedCount, totalSources, t);
   const color = getReliabilityColor(score);
 
   return (
     <div className="rounded-xl p-4 bg-[#FBE8CE] border border-[#C3CC9B]">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] font-semibold text-[#5C6650] uppercase tracking-widest">Confidence Explained</span>
+        <span className="text-[11px] font-semibold text-[#5C6650] uppercase tracking-widest">{t('results.confidenceExplained', 'Confidence Explained')}</span>
         <span className="text-sm font-black" style={{ color }}>{level} ({score}%)</span>
       </div>
       <AnimatedBar value={score} color={color} height={5} />
@@ -537,8 +605,9 @@ function ConfidenceExplainer({ score, verdict, trustedCount, totalSources }) {
 // ─── Enriched Source Card ─────────────────────────────────────────────────────
 
 function SourceCard({ src, index }) {
+  const { t } = useTranslation();
   const domain = getDomain(src.url);
-  const pub = publisherReliability(src);
+  const pub = publisherReliability(src, t);
   const displayName = src.source || domain || 'Trusted Source';
 
   return (
@@ -576,7 +645,7 @@ function SourceCard({ src, index }) {
           {/* Open link */}
           {src.url && (
             <div className="flex items-center gap-1 mt-2">
-              <span className="text-[10px] text-[#5C6650] group-hover:text-[#768E56] transition-colors font-medium">Open article</span>
+              <span className="text-[10px] text-[#5C6650] group-hover:text-[#768E56] transition-colors font-medium">{t('results.openArticle', 'Open article')}</span>
               <ExternalLink size={9} className="text-[#5C6650]/50 group-hover:text-[#768E56] transition-colors" />
             </div>
           )}
@@ -589,11 +658,12 @@ function SourceCard({ src, index }) {
 // ─── Claim Card ──────────────────────────────────────────────────────────────
 
 function ClaimCard({ claim, index }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const cfg = getVerdict(claim.verdict);
+  const cfg = getVerdict(claim.verdict, t);
   const { Icon } = cfg;
   const bullets = splitReasoning(claim.reasoning);
-  const trustedCount = claim.sources ? claim.sources.filter(s => publisherReliability(s).tier <= 2).length : 0;
+  const trustedCount = claim.sources ? claim.sources.filter(s => publisherReliability(s, t).tier <= 2).length : 0;
   const totalSources = claim.sources?.length || 0;
 
   return (
@@ -654,7 +724,7 @@ function ClaimCard({ claim, index }) {
               {bullets.length > 0 && (
                 <div>
                   <p className="text-[11px] font-semibold text-[#5C6650] uppercase tracking-widest mb-2.5">
-                    Evidence reasoning
+                    {t('results.evidenceReasoning', 'Evidence reasoning')}
                   </p>
                   <ul className="space-y-2">
                     {bullets.map((b, i) => (
@@ -671,7 +741,7 @@ function ClaimCard({ claim, index }) {
               {claim.sources && claim.sources.length > 0 && (
                 <div>
                   <p className="text-[11px] font-semibold text-[#5C6650] uppercase tracking-widest mb-2.5">
-                    Sources checked ({claim.sources.length})
+                    {t('results.sourceClaimLabel', 'Sources checked')} ({claim.sources.length})
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {claim.sources.slice(0, 4).map((src, i) => (
@@ -688,9 +758,142 @@ function ClaimCard({ claim, index }) {
   );
 }
 
+// ─── Key Findings Card ────────────────────────────────────────────────────────
+
+function KeyFindings({ keyFindings }) {
+  const { t } = useTranslation();
+  if (!keyFindings || keyFindings.length === 0) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.1 }}
+      className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]"
+    >
+      <SectionHeading icon={Award}>{t('extension.keyFindings', 'Key Findings')}</SectionHeading>
+      <ul className="space-y-3">
+        {keyFindings.map((item, i) => {
+          const icon = typeof item === 'string' ? '✓' : (item.icon || '✓');
+          const text = typeof item === 'string' ? item : item.text;
+          const colors = { '✓': '#2E7D32', '⚠': '#D87D0A', '✗': '#C62828' };
+          const col = colors[icon] || '#768E56';
+          return (
+            <li key={i} className="flex items-start gap-3 text-sm text-[#232B1B] leading-relaxed">
+              <span className="shrink-0 font-black text-base leading-none" style={{ color: col }}>{icon}</span>
+              <span>{text}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </motion.div>
+  );
+}
+
+// ─── Verified Facts Card ──────────────────────────────────────────────────────
+
+function VerifiedFacts({ verifiedFacts }) {
+  const { t } = useTranslation();
+  if (!verifiedFacts || verifiedFacts.length === 0) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.12 }}
+      className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]"
+    >
+      <SectionHeading icon={CircleCheckBig} iconColor="#2E7D32">{t('extension.verifiedFacts', 'Verified Facts')}</SectionHeading>
+      <ul className="space-y-3">
+        {verifiedFacts.map((fact, i) => {
+          const text = typeof fact === 'string' ? fact : (fact.text || fact);
+          return (
+            <li key={i} className="flex items-start gap-3 text-sm text-[#232B1B] leading-relaxed">
+              <span className="shrink-0 font-black text-base leading-none text-[#2E7D32]">✓</span>
+              <span>{text}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </motion.div>
+  );
+}
+
+// ─── Final Assessment Card ────────────────────────────────────────────────────
+
+function FinalAssessment({ finalAssessment }) {
+  const { t } = useTranslation();
+  if (!finalAssessment) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 }}
+      className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]"
+    >
+      <SectionHeading icon={Award}>{t('extension.finalAssessment', 'Final Assessment')}</SectionHeading>
+      <p className="text-sm text-[#232B1B] leading-relaxed font-medium">{finalAssessment}</p>
+    </motion.div>
+  );
+}
+
+// ─── Timeline Card ────────────────────────────────────────────────────────────
+
+function Timeline({ timeline }) {
+  const { t } = useTranslation();
+  if (!timeline || typeof timeline !== 'object' || !Object.values(timeline).some(v => v)) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.22 }}
+      className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]"
+    >
+      <SectionHeading icon={Clock}>{t('extension.timeline', 'Timeline')}</SectionHeading>
+      <div className="space-y-4">
+        {timeline.claimPublished && (
+          <div className="flex items-start gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#768E56] shrink-0 mt-1.5" />
+            <div>
+              <p className="text-[10px] font-black text-[#5C6650] uppercase tracking-wider">{t('extension.claimPublished', 'Claim First Appeared')}</p>
+              <p className="text-sm font-semibold text-[#232B1B]">{timeline.claimPublished}</p>
+            </div>
+          </div>
+        )}
+        {timeline.majorCoverage && (
+          <div className="flex items-start gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#D87D0A] shrink-0 mt-1.5" />
+            <div>
+              <p className="text-[10px] font-black text-[#5C6650] uppercase tracking-wider">{t('extension.majorCoverage', 'Major Media Coverage')}</p>
+              <p className="text-sm font-semibold text-[#232B1B]">{timeline.majorCoverage}</p>
+            </div>
+          </div>
+        )}
+        {timeline.officialConfirmation && (
+          <div className="flex items-start gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#2E7D32] shrink-0 mt-1.5" />
+            <div>
+              <p className="text-[10px] font-black text-[#5C6650] uppercase tracking-wider">{t('extension.officialConfirmationLabel', 'Official Confirmation')}</p>
+              <p className="text-sm font-semibold text-[#232B1B]">{timeline.officialConfirmation}</p>
+            </div>
+          </div>
+        )}
+        {timeline.verificationCompleted && (
+          <div className="flex items-start gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#5C6650] shrink-0 mt-1.5" />
+            <div>
+              <p className="text-[10px] font-black text-[#5C6650] uppercase tracking-wider">{t('extension.verificationCompleted', 'Verification Completed')}</p>
+              <p className="text-sm font-semibold text-[#232B1B]">{new Date(timeline.verificationCompleted).toLocaleString()}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ResultsPage() {
+  const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const { checkId: paramCheckId } = useParams();
@@ -717,7 +920,7 @@ export default function ResultsPage() {
     return (
       <div className="min-h-screen bg-[#FBE8CE] flex flex-col items-center justify-center gap-4 text-center px-4">
         <div className="w-8 h-8 border-2 border-[#C3CC9B] border-t-[#768E56] rounded-full animate-spin" />
-        <p className="text-[#5C6650] text-sm">Loading saved report…</p>
+        <p className="text-[#5C6650] text-sm">{t('results.loadingSavedReport', 'Loading saved report…')}</p>
       </div>
     );
   }
@@ -727,7 +930,7 @@ export default function ResultsPage() {
       <div className="min-h-screen bg-[#FBE8CE] flex flex-col items-center justify-center gap-4 text-center px-4">
         <ShieldQuestion size={40} className="text-[#5C6650]/40" />
         <p className="text-[#C62828] text-sm font-medium">{fetchError}</p>
-        <Link to="/history" className="bg-[#232B1B] hover:bg-[#343F29] text-[#FBE8CE] font-bold px-5 py-2 rounded-xl text-sm no-underline transition-all">← Back to History</Link>
+        <Link to="/history" className="bg-[#232B1B] hover:bg-[#343F29] text-[#FBE8CE] font-bold px-5 py-2 rounded-xl text-sm no-underline transition-all">{t('results.backToHistory', '← Back to History')}</Link>
       </div>
     );
   }
@@ -736,8 +939,8 @@ export default function ResultsPage() {
     return (
       <div className="min-h-screen bg-[#FBE8CE] flex flex-col items-center justify-center gap-4 text-center px-4">
         <ShieldQuestion size={40} className="text-[#5C6650]/40" />
-        <p className="text-[#5C6650] text-sm">No results to display. Please run an analysis first.</p>
-        <Link to="/analyze" className="bg-[#232B1B] hover:bg-[#343F29] text-[#FBE8CE] font-bold px-5 py-2 rounded-xl text-sm no-underline transition-all">← Back to Analyze</Link>
+        <p className="text-[#5C6650] text-sm">{t('results.noResult', 'No results to display. Please run an analysis first.')}</p>
+        <Link to="/analyze" className="bg-[#232B1B] hover:bg-[#343F29] text-[#FBE8CE] font-bold px-5 py-2 rounded-xl text-sm no-underline transition-all">{t('results.backAnalyze', '← Back to Analyze')}</Link>
       </div>
     );
   }
@@ -746,6 +949,7 @@ export default function ResultsPage() {
     inputType, trustScore, aiLikelihood, aiScore, aiReasoning,
     sourceCredibility, detectedLanguage,
     claims = [], checkId, apiWorking,
+    keyFindings = [], verifiedFacts = [], finalAssessment, timeline,
     // URL classification (only present for URL inputs)
     pageType, pageTypeLabel, pageTypeDescription, pageVerdict,
     // image
@@ -761,7 +965,7 @@ export default function ResultsPage() {
   const rawVerdict = isImage
     ? imgVerdict
     : (pageVerdict || (trustScore >= 70 ? 'Supported' : trustScore >= 40 ? 'Misleading' : 'Contradicted'));
-  const cfg = getVerdict(rawVerdict);
+  const cfg = getVerdict(rawVerdict, t);
   const { Icon: VerdictIcon } = cfg;
 
   const displayScore = isImage ? Math.round(imgConf ?? 50) : Math.round(trustScore ?? 50);
@@ -787,11 +991,11 @@ export default function ResultsPage() {
   }).slice(0, 8);
 
   // Global trust metrics
-  const allTrustedCount = uniqueSources.filter(s => publisherReliability(s).tier <= 2).length;
+  const allTrustedCount = uniqueSources.filter(s => publisherReliability(s, t).tier <= 2).length;
   const totalSourceCount = uniqueSources.length;
 
   // Metrics
-  const evidenceStrength = scoreToLabel(Math.round(sourceCredibility ?? 0));
+  const evidenceStrength = scoreToLabel(Math.round(sourceCredibility ?? 0), t);
 
   // Show misleading context?
   const showMissingContext = ['Misleading', 'PARTIALLY_TRUE'].includes(rawVerdict) && !isImage;
@@ -805,7 +1009,7 @@ export default function ResultsPage() {
           <button onClick={() => navigate('/analyze')}
             className="flex items-center gap-1.5 text-xs text-[#5C6650] hover:text-[#232B1B] transition-colors font-semibold">
             <ArrowLeft size={14} />
-            New Analysis
+            {t('results.newAnalysisBtn', 'New Analysis')}
           </button>
           <span className="text-[#C3CC9B]">|</span>
           <SatyaScanLogo />
@@ -814,13 +1018,13 @@ export default function ResultsPage() {
           {/* Evidence-first tagline */}
           <span className="hidden sm:flex items-center gap-1.5 text-[10px] font-bold text-[#5C6650]/60">
             <ShieldCheck size={10} style={{ color: '#768E56' }} />
-            Independent Verification
+            {t('results.independentVerification', 'Independent Verification')}
           </span>
           {checkId && (
             <button onClick={() => setShowShare(true)}
               className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors bg-[#E4DFB5] hover:bg-[#E4DFB5]/70 text-[#232B1B] border border-[#C3CC9B]">
               <Share2 size={12} />
-              Share
+              {t('results.share', 'Share')}
             </button>
           )}
         </div>
@@ -835,8 +1039,8 @@ export default function ResultsPage() {
             className="flex items-start gap-3 px-4 py-3 rounded-xl text-sm bg-[#D87D0A]/10 border border-[#D87D0A]/20">
             <TriangleAlert size={16} className="text-[#D87D0A] shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-[#D87D0A]">Limited analysis — evidence retrieval running in fallback mode</p>
-              <p className="text-[#5C6650] text-xs mt-0.5">Results are based on partial evidence only. Manual verification is recommended.</p>
+              <p className="font-bold text-[#D87D0A]">{t('results.limitedAnalysis', 'Limited analysis — evidence retrieval running in fallback mode')}</p>
+              <p className="text-[#5C6650] text-xs mt-0.5">{t('results.limitedAnalysisDesc', 'Results are based on partial evidence only. Manual verification is recommended.')}</p>
             </div>
           </motion.div>
         )}
@@ -868,10 +1072,10 @@ export default function ResultsPage() {
                 {/* Label above */}
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#5C6650]">
-                    {isImage ? 'Image Authenticity Report'
+                    {isImage ? t('results.imageAuthenticityReport', 'Image Authenticity Report')
                     : inputType === 'url'
-                      ? (PAGE_TYPE_CONFIG[pageType]?.reportLabel || 'URL Verification Report')
-                      : 'Fact-Check Report'}
+                      ? (PAGE_TYPE_CONFIG[pageType] ? t(PAGE_TYPE_CONFIG[pageType].reportLabelKey, pageTypeLabel) : t('results.urlVerificationReport', 'URL Verification Report'))
+                      : t('results.factCheckReport', 'Fact-Check Report')}
                   </span>
                   {detectedLanguage && detectedLanguage !== 'unknown' && detectedLanguage !== 'en' && (
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-[#768E56]/15 text-[#768E56] border border-[#768E56]/25">
@@ -901,7 +1105,7 @@ export default function ResultsPage() {
                     <div className="flex items-start gap-2.5">
                       <ShieldCheck size={13} style={{ color: '#768E56', marginTop: 3, flexShrink: 0 }} />
                       <p className="text-sm text-[#232B1B] leading-relaxed">
-                        <span className="font-bold text-[#232B1B]">Verification Summary — </span>
+                        <span className="font-bold text-[#232B1B]">{t('results.verificationSummary', 'Verification Summary')} — </span>
                         {firstSummary}
                       </p>
                     </div>
@@ -913,7 +1117,9 @@ export default function ResultsPage() {
               <div className="flex flex-col items-center gap-1.5 shrink-0">
                 <ReliabilityRing score={displayScore} />
                 <p className="text-[10px] text-[#5C6650] text-center leading-tight">
-                  Overall<br/>Reliability
+                  {t('results.overallReliability', 'Overall\nReliability').split('\n').map((p, idx) => (
+                    <span key={idx}>{p}{idx === 0 && <br />}</span>
+                  ))}
                 </p>
               </div>
             </div>
@@ -924,25 +1130,25 @@ export default function ResultsPage() {
                 {supported > 0 && (
                   <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-[#2E7D32]/10 text-[#2E7D32] border border-[#2E7D32]/20">
                     <CircleCheckBig size={11} strokeWidth={2.5} />
-                    {supported} evidence-supported
+                    {supported} {t('results.evidenceSupported', 'evidence-supported')}
                   </span>
                 )}
                 {contradicted > 0 && (
                   <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-[#C62828]/10 text-[#C62828] border border-[#C62828]/20">
                     <CircleX size={11} strokeWidth={2.5} />
-                    {contradicted} disputed by sources
+                    {contradicted} {t('results.disputedBySources', 'disputed by sources')}
                   </span>
                 )}
                 {unverified > 0 && (
                   <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-[#5C6650]/10 text-[#5C6650] border border-[#5C6650]/20">
                     <ShieldQuestion size={11} strokeWidth={2} />
-                    {unverified} insufficient evidence
+                    {unverified} {t('results.insufficientEvidence', 'insufficient evidence')}
                   </span>
                 )}
                 {totalSourceCount > 0 && (
                   <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-[#768E56]/10 text-[#768E56] border border-[#768E56]/20">
                     <Globe size={11} strokeWidth={2} />
-                    {totalSourceCount} sources checked
+                    {totalSourceCount} {t('results.sourcesChecked', 'sources checked')}
                   </span>
                 )}
               </div>
@@ -965,6 +1171,16 @@ export default function ResultsPage() {
           <MissingContext verdict={rawVerdict} reasoning={aiReasoning} />
         )}
 
+        {/* ── KEY FINDINGS ──────────────────────────────────────────────────── */}
+        {!isImage && keyFindings && keyFindings.length > 0 && (
+          <KeyFindings keyFindings={keyFindings} />
+        )}
+
+        {/* ── VERIFIED FACTS ────────────────────────────────────────────────── */}
+        {!isImage && verifiedFacts && verifiedFacts.length > 0 && (
+          <VerifiedFacts verifiedFacts={verifiedFacts} />
+        )}
+
         {/* ── HOW WE VERIFIED ───────────────────────────────────────────────── */}
         <HowWeVerified />
 
@@ -975,14 +1191,14 @@ export default function ResultsPage() {
           transition={{ delay: 0.12 }}
           className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]"
         >
-          <SectionHeading icon={TrendingUp}>Evidence Analysis Metrics</SectionHeading>
+          <SectionHeading icon={TrendingUp}>{t('results.evidenceAnalysisMetrics', 'Evidence Analysis Metrics')}</SectionHeading>
 
           {isImage ? (
             <div className="space-y-4">
               {[
-                { label: 'AI Generated Probability', value: aiProbability ?? 0, inverse: true },
-                { label: 'Deepfake Probability', value: deepfakeProbability ?? 0, inverse: true },
-                { label: 'Manipulation Probability', value: manipulationProbability ?? 0, inverse: true },
+                { label: t('results.aiGeneratedProbability', 'AI Generated Probability'), value: aiProbability ?? 0, inverse: true },
+                { label: t('results.deepfakeProbability', 'Deepfake Probability'), value: deepfakeProbability ?? 0, inverse: true },
+                { label: t('results.manipulationProbability', 'Manipulation Probability'), value: manipulationProbability ?? 0, inverse: true },
               ].map(({ label, value, inverse }) => {
                 const color = inverse ? (value > 50 ? '#C62828' : '#2E7D32') : getReliabilityColor(value);
                 return (
@@ -990,7 +1206,7 @@ export default function ResultsPage() {
                     <div className="flex items-center justify-between text-xs mb-2">
                       <span className="text-[#5C6650] font-bold">{label}</span>
                       <span className="font-bold" style={{ color }}>
-                        {value > 70 ? 'High' : value > 40 ? 'Moderate' : 'Low'} ({value}%)
+                        {value > 70 ? t('results.high', 'High') : value > 40 ? t('results.moderate', 'Moderate') : t('results.low', 'Low')} ({value}%)
                       </span>
                     </div>
                     <AnimatedBar value={value} color={color} />
@@ -1003,14 +1219,14 @@ export default function ResultsPage() {
               {/* Source credibility bar */}
               <div>
                 <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="text-[#5C6650] font-bold">Source Credibility</span>
+                  <span className="text-[#5C6650] font-bold">{t('results.sourceCredibility', 'Source Credibility')}</span>
                   <span className="font-bold" style={{ color: getReliabilityColor(sourceCredibility ?? 0) }}>
                     {evidenceStrength} ({Math.round(sourceCredibility ?? 0)}%)
                   </span>
                 </div>
                 <AnimatedBar value={sourceCredibility ?? 0} color={getReliabilityColor(sourceCredibility ?? 0)} />
                 <p className="text-[10px] text-[#5C6650]/80 mt-1">
-                  Based on publisher trust tier and editorial standards of retrieved sources
+                  {t('results.sourceCredibilityDesc', 'Based on publisher trust tier and editorial standards of retrieved sources')}
                 </p>
               </div>
 
@@ -1027,8 +1243,9 @@ export default function ResultsPage() {
                 <div className="flex items-center gap-3 text-xs text-[#5C6650]">
                   <ShieldCheck size={12} style={{ color: '#768E56' }} />
                   <span>
-                    <span className="font-bold text-[#232B1B]">{allTrustedCount}</span> of{' '}
-                    <span className="font-bold text-[#232B1B]">{totalSourceCount}</span> sources are from verified publishers
+                    {t('results.sourcesFromVerified', '{{count}} of {{total}} sources are from verified publishers')
+                      .replace('{{count}}', allTrustedCount)
+                      .replace('{{total}}', totalSourceCount)}
                   </span>
                 </div>
               )}
@@ -1046,21 +1263,21 @@ export default function ResultsPage() {
           >
             {/* Metadata status */}
             <div className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]">
-              <SectionHeading icon={ShieldCheck}>Metadata Status</SectionHeading>
+              <SectionHeading icon={ShieldCheck}>{t('results.metadataStatus', 'Metadata Status')}</SectionHeading>
               {(() => {
                 const intact = metadataIntegrity === 'INTACT';
                 const stripped = metadataIntegrity === 'STRIPPED';
                 const mColor = intact ? '#2E7D32' : stripped ? '#D87D0A' : '#C62828';
-                const mLabel = intact ? 'Original & Intact' : stripped ? 'Metadata Removed' : 'Suspicious';
+                const mLabel = intact ? t('results.metadataOriginal', 'Original & Intact') : stripped ? t('results.metadataRemoved', 'Metadata Removed') : t('results.metadataSuspicious', 'Suspicious');
                 return (
                   <>
                     <p className="text-lg font-bold mb-1.5" style={{ color: mColor }}>{mLabel}</p>
                     <p className="text-xs text-[#5C6650] leading-relaxed">
                       {intact
-                        ? 'The image retains its original camera data — a strong sign of authenticity.'
+                        ? t('results.metadataOriginalDesc', 'The image retains its original camera data — a strong sign of authenticity.')
                         : stripped
-                        ? 'Metadata was removed. Common on social media, but can sometimes indicate editing.'
-                        : 'Modified metadata was detected, which may indicate tampering.'}
+                        ? t('results.metadataRemovedDesc', 'Metadata was removed. Common on social media, but can sometimes indicate editing.')
+                        : t('results.metadataSuspiciousDesc', 'Modified metadata was detected, which may indicate tampering.')}
                     </p>
                   </>
                 );
@@ -1070,7 +1287,7 @@ export default function ResultsPage() {
             {/* Findings */}
             {findings.length > 0 && (
               <div className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]">
-                <SectionHeading icon={FileText}>What We Found</SectionHeading>
+                <SectionHeading icon={FileText}>{t('results.whatWeFound', 'What We Found')}</SectionHeading>
                 <ul className="space-y-2">
                   {findings.slice(0, 5).map((f, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-[#232B1B] leading-relaxed">
@@ -1092,9 +1309,9 @@ export default function ResultsPage() {
             transition={{ delay: 0.18 }}
             className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]"
           >
-            <SectionHeading icon={FileText}>Why We Reached This Conclusion</SectionHeading>
+            <SectionHeading icon={FileText}>{t('results.whyWeReached', 'Why We Reached This Conclusion')}</SectionHeading>
             <p className="text-[11px] text-[#5C6650]/60 mb-3 leading-relaxed">
-              These conclusions are derived from cross-referencing evidence across independent sources — not from a single AI response.
+              {t('results.whyWeReachedDesc', 'These conclusions are derived from cross-referencing evidence across independent sources — not from a single AI response.')}
             </p>
             <ul className="space-y-3">
               {summaryBullets.map((b, i) => (
@@ -1107,6 +1324,16 @@ export default function ResultsPage() {
           </motion.div>
         )}
 
+        {/* ── FINAL ASSESSMENT ─────────────────────────────────────────────── */}
+        {!isImage && finalAssessment && (
+          <FinalAssessment finalAssessment={finalAssessment} />
+        )}
+
+        {/* ── TIMELINE ──────────────────────────────────────────────────────── */}
+        {!isImage && timeline && (
+          <Timeline timeline={timeline} />
+        )}
+
         {/* Image summary */}
         {isImage && imgSummary && (
           <motion.div
@@ -1115,7 +1342,7 @@ export default function ResultsPage() {
             transition={{ delay: 0.22 }}
             className="rounded-2xl p-5 bg-[#E4DFB5] border border-[#C3CC9B]"
           >
-            <SectionHeading icon={FileText}>Analysis Summary</SectionHeading>
+            <SectionHeading icon={FileText}>{t('results.analysisSummary', 'Analysis Summary')}</SectionHeading>
             <p className="text-sm text-[#232B1B] leading-relaxed">{imgSummary}</p>
           </motion.div>
         )}
@@ -1135,9 +1362,9 @@ export default function ResultsPage() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-[#232B1B]/80">
                 <BadgeCheck size={15} style={{ color: '#768E56' }} strokeWidth={2} />
-                Claim-by-Claim Breakdown
+                {t('results.claimByClaimBreakdown', 'Claim-by-Claim Breakdown')}
               </h2>
-              <span className="text-[11px] text-[#5C6650]/60 font-medium">Tap any claim to see evidence</span>
+              <span className="text-[11px] text-[#5C6650]/60 font-medium">{t('results.tapClaimForEvidence', 'Tap any claim to see evidence')}</span>
             </div>
             <div className="space-y-2.5">
               {claims.map((claim, i) => <ClaimCard key={i} claim={claim} index={i} />)}
@@ -1153,10 +1380,9 @@ export default function ResultsPage() {
           className="rounded-2xl p-5 text-center bg-[#E4DFB5] border border-[#C3CC9B]"
         >
           <ShieldCheck size={18} style={{ color: '#768E56', margin: '0 auto 10px' }} strokeWidth={1.5} />
-          <p className="text-xs font-bold text-[#232B1B] mb-1">Evidence-Based Verification</p>
+          <p className="text-xs font-bold text-[#232B1B] mb-1">{t('results.evidenceBasedVerification', 'Evidence-Based Verification')}</p>
           <p className="text-[11px] text-[#5C6650] leading-relaxed max-w-sm mx-auto">
-            SatyaScan verifies claims through independent source retrieval and cross-reference analysis.
-            You can evaluate every source used in this report.
+            {t('results.evidenceBasedDesc', 'SatyaScan verifies claims through independent source retrieval and cross-reference analysis. You can evaluate every source used in this report.')}
           </p>
         </motion.div>
 
@@ -1165,7 +1391,7 @@ export default function ResultsPage() {
       {/* ── Footer ──────────────────────────────────────────────────────────── */}
       <div className="mt-6 px-5 py-5 flex items-center justify-between bg-[#E4DFB5] border-t border-[#C3CC9B]">
         <SatyaScanLogo />
-        <p className="text-[11px] text-[#5C6650]">© 2025 SatyaScan — Independent Verification</p>
+        <p className="text-[11px] text-[#5C6650]">{t('results.footerCopy', '© 2025 SatyaScan — Independent Verification')}</p>
       </div>
 
       {showShare && checkId && (

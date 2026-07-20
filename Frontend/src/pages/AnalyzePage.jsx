@@ -131,7 +131,7 @@ export default function AnalyzePage() {
         {menuOpen && (
           <div className="md:hidden mt-4 pt-4 border-t border-[#C3CC9B]/50 space-y-4">
             <div className="flex items-center justify-between py-1">
-              <span className="text-xs font-bold text-[#5C6650] uppercase tracking-wider">Analysis Language</span>
+              <span className="text-xs font-bold text-[#5C6650] uppercase tracking-wider">{t('nav.language')}</span>
               <LanguageSelector />
             </div>
             <button

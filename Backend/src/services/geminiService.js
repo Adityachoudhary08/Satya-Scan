@@ -1,7 +1,7 @@
-﻿const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { GEMINI_API_KEY } = require('../config/env');
 const logger = require('../config/logger');
-const { parseGeminiJSON } = require('../utils/helpers');
+const { parseGeminiJSON, resolveLanguage } = require('../utils/helpers');
 
 
 
@@ -72,7 +72,40 @@ async function withRetry(operation, label, maxAttempts = 2) {
   throw new GeminiProviderError(`${label} unavailable`, lastError);
 }
 
-async function analyzeText(prompt) {
+function hasDevanagari(str) {
+  return /[\u0900-\u097F]/.test(str);
+}
+
+function detectOutputLanguage(obj) {
+  if (!obj) return 'en';
+  if (typeof obj === 'string') {
+    return hasDevanagari(obj) ? 'hi' : 'en';
+  }
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      if (detectOutputLanguage(item) === 'hi') {
+        return 'hi';
+      }
+    }
+  } else if (typeof obj === 'object') {
+    for (const key of Object.keys(obj)) {
+      if (['url', 'publishedAt', 'date', 'index', 'confidence', 'trustScore', 'aiProbability', 'deepfakeProbability', 'manipulationProbability'].includes(key)) {
+        continue;
+      }
+      if (detectOutputLanguage(obj[key]) === 'hi') {
+        return 'hi';
+      }
+    }
+  }
+  return 'en';
+}
+
+async function analyzeText(prompt, selectedLanguage) {
+  const responseLanguage = resolveLanguage(selectedLanguage);
+  logger.info('Gemini language request', {
+    selectedLanguage,
+    promptLanguage: responseLanguage
+  });
   logger.info('Sending text analysis request to Gemini');
   logger.debug('Prompt length:', prompt.length);
 
@@ -97,21 +130,37 @@ async function analyzeText(prompt) {
     logger.info('Gemini text analysis response received');
     logger.debug('Response length:', text.length);
 
-    return parseGeminiJSON(text);
+    const parsed = parseGeminiJSON(text);
+    const detectedOutputLanguage = detectOutputLanguage(parsed);
+
+    logger.info('Gemini language response', {
+      selectedLanguage,
+      detectedOutputLanguage
+    });
+    if (responseLanguage === 'hi' && detectedOutputLanguage !== 'hi') {
+      logger.warn('Gemini returned non-Hindi output for Hindi request');
+    }
+
+    return parsed;
   } catch (error) {
-  console.log("========== GEMINI ERROR ==========");
-  console.dir(error, { depth: null });
-  console.log("==================================");
+    console.log("========== GEMINI ERROR ==========");
+    console.dir(error, { depth: null });
+    console.log("==================================");
 
-  logger.error("Gemini text analysis failed:", getErrorMessage(error));
+    logger.error("Gemini text analysis failed:", getErrorMessage(error));
 
-  throw error instanceof GeminiProviderError
-    ? error
-    : new GeminiProviderError("Gemini text analysis unavailable", error);
+    throw error instanceof GeminiProviderError
+      ? error
+      : new GeminiProviderError("Gemini text analysis unavailable", error);
+  }
 }
-}
 
-async function analyzeImage(imageBuffer, mimeType, prompt) {
+async function analyzeImage(imageBuffer, mimeType, prompt, selectedLanguage) {
+  const responseLanguage = resolveLanguage(selectedLanguage);
+  logger.info('Gemini language request', {
+    selectedLanguage,
+    promptLanguage: responseLanguage
+  });
   logger.info('Sending image analysis request to Gemini Vision');
 
   const model = genAI.getGenerativeModel({
@@ -142,7 +191,18 @@ async function analyzeImage(imageBuffer, mimeType, prompt) {
     logger.info('Gemini image analysis response received');
     logger.debug('Response length:', text.length);
 
-    return parseGeminiJSON(text);
+    const parsed = parseGeminiJSON(text);
+    const detectedOutputLanguage = detectOutputLanguage(parsed);
+
+    logger.info('Gemini language response', {
+      selectedLanguage,
+      detectedOutputLanguage
+    });
+    if (responseLanguage === 'hi' && detectedOutputLanguage !== 'hi') {
+      logger.warn('Gemini returned non-Hindi output for Hindi request');
+    }
+
+    return parsed;
   } catch (error) {
     logger.error('Gemini image analysis failed:', getErrorMessage(error));
     throw error instanceof GeminiProviderError
@@ -184,10 +244,47 @@ async function generateSearchQueries(prompt) {
   }
 }
 
+function formatGeminiError(error, evidenceCollected = false, responseLanguage = 'en') {
+  const isHi = responseLanguage === 'hi';
+  const message = (error?.message || String(error)).toLowerCase();
+  const cause = error?.cause ? String(error.cause).toLowerCase() : '';
+  const combined = `${message} ${cause}`;
+
+  let errorType = 'unavailable';
+  let userMessage = isHi ? 'जेमिनी सेवा अस्थायी रूप से अनुपलब्ध है।' : 'Gemini is temporarily unavailable.';
+  let statusCode = 503;
+
+  if (combined.includes('429') || combined.includes('quota') || combined.includes('limit')) {
+    errorType = 'quota';
+    userMessage = isHi ? 'जेमिनी एपीआई कोटा समाप्त हो गया है।' : 'Gemini API quota exceeded.';
+    statusCode = 429;
+  } else if (/timeout|etimedout/i.test(combined)) {
+    errorType = 'timeout';
+    userMessage = isHi ? 'एआई सत्यापन सेवा का समय समाप्त हो गया।' : 'AI verification service timed out.';
+    statusCode = 504;
+  } else if (combined.includes('network') || combined.includes('econnreset') || combined.includes('fetch')) {
+    errorType = 'network';
+    userMessage = isHi ? 'जेमिनी के साथ नेटवर्क कनेक्शन की समस्या।' : 'Network connection issue with Gemini.';
+    statusCode = 503;
+  } else if (combined.includes('json') || combined.includes('parse') || combined.includes('invalid response')) {
+    errorType = 'invalid_response';
+    userMessage = isHi ? 'जेमिनी से अमान्य प्रतिक्रिया प्रारूप।' : 'Invalid response format from Gemini.';
+    statusCode = 502;
+  }
+
+  return {
+    success: false,
+    errorType,
+    message: userMessage,
+    evidenceCollected: !!evidenceCollected,
+    statusCode
+  };
+}
+
 module.exports = {
   analyzeText,
   analyzeImage,
   generateSearchQueries,
   GeminiProviderError,
+  formatGeminiError,
 };
-

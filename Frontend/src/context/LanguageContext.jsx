@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback } from 'react';
-import en from '../translations/en.json';
-import hi from '../translations/hi.json';
+import en from '@shared/translations/en.json';
+import hi from '@shared/translations/hi.json';
 
 const TRANSLATIONS = { en, hi };
 const LanguageContext = createContext(null);

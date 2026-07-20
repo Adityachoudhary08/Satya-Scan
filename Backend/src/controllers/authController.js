@@ -78,4 +78,39 @@ async function login(req, res, next) {
   }
 }
 
-module.exports = { signup, login };
+/**
+ * GET /api/auth/me
+ */
+async function getMe(req, res, next) {
+  try {
+    const Check = require('../models/Check');
+
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Calculate total reports
+    const totalReports = await Check.countDocuments({ userId: req.userId });
+
+    // Calculate verified today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const verifiedToday = await Check.countDocuments({
+      userId: req.userId,
+      createdAt: { $gte: startOfToday }
+    });
+
+    res.json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      verifiedToday,
+      totalReports
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { signup, login, getMe };

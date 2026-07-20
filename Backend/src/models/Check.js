@@ -16,7 +16,6 @@ const claimSchema = new mongoose.Schema(
     text: { type: String, required: true },
     verdict: {
       type: String,
-      enum: ['True', 'False', 'Misleading', 'Partially True', 'Unverified', 'Supported', 'Contradicted'],
       default: 'Unverified',
     },
     confidence: { type: Number, min: 0, max: 100 },
@@ -37,7 +36,7 @@ const checkSchema = new mongoose.Schema(
     },
     inputType: {
       type: String,
-      enum: ['text', 'url', 'image'],
+      enum: ['text', 'url', 'image', 'page'],
       required: true,
     },
     originalText: { type: String, maxlength: 15000 },
@@ -52,6 +51,20 @@ const checkSchema = new mongoose.Schema(
     pageTypeLabel: String,
     pageTypeDescription: String,
     pageVerdict: String,
+
+    // ─── Page analysis fields ────────────────────────────────
+    politicalBias: String,
+    suspiciousStatements: [
+      {
+        statement: String,
+        reason: String,
+      }
+    ],
+    missingContext: [String],
+    recommendation: String,
+    articleTitle: String,
+    pageTitle: String,
+    metaDescription: String,
 
     // ─── Image verification fields ───────────────────────────
     imageVerdict: {
@@ -75,6 +88,20 @@ const checkSchema = new mongoose.Schema(
     responseLanguage: String,
     selectedLanguage: String,
     processingTime: String,
+
+    // ─── Enriched Phase 5 & 6 fields ─────────────────────────
+    reasoning: mongoose.Schema.Types.Mixed,
+    confidenceBreakdown: mongoose.Schema.Types.Mixed,
+    sourceConsensus: mongoose.Schema.Types.Mixed,
+    evidenceMetrics: mongoose.Schema.Types.Mixed,
+    supportCount: Number,
+    contradictCount: Number,
+    neutralCount: Number,
+    unknownCount: Number,
+    verifiedFacts: [String],
+    keyFindings: [String],
+    finalAssessment: String,
+    timeline: mongoose.Schema.Types.Mixed,
   },
   { timestamps: true }
 );
