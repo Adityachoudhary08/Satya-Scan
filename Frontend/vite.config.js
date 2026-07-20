@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@shared': resolve(__dirname, '../../satyascan-extension'),
+      '@shared': resolve(__dirname, '../satyascan-extension'),
     },
   },
   server: {
@@ -21,7 +21,7 @@ export default defineConfig({
     fs: {
       allow: [
         resolve(__dirname),
-        resolve(__dirname, '../../satyascan-extension'),
+        resolve(__dirname, '../satyascan-extension'),
       ],
     },
   },
