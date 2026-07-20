@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "SatyaScan",
+  "short_name": "SatyaScan",
+  "version": "1.1.0",
+  "description": "AI-powered fake news and misinformation detection. Highlight any text, right-click, and verify instantly.",
+
+  "icons": {
+    "16":  "icons/icon16.png",
+    "32":  "icons/icon32.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "SatyaScan – AI Fact Checker",
+    "default_icon": {
+      "16":  "icons/icon16.png",
+      "32":  "icons/icon32.png",
+      "48":  "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "https://satya-scan-vho6.onrender.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://en.wikipedia.org/*",
+    "https://*.bbc.com/*",
+    "https://*.bbc.co.uk/*",
+    "https://*.reuters.com/*"
+  ],
+
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["assets/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

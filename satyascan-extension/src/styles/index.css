@@ -1,0 +1,222 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+/* ─── Design Tokens — matches SatyaScan Frontend exactly ──────── */
+@theme {
+  /* Brand accent (sage green) */
+  --color-accent:       #768E56;
+  --color-accent-dark:  #5C6650;
+  --color-accent-light: #C3CC9B;
+
+  /* Backgrounds */
+  --color-bg-primary:   #FBE8CE;
+  --color-bg-secondary: #E4DFB5;
+
+  /* Text */
+  --color-text-primary:   #232B1B;
+  --color-text-secondary: #5C6650;
+
+  /* Borders */
+  --color-border:        #C3CC9B;
+  --color-border-accent: rgba(118, 142, 86, 0.4);
+
+  /* Muted */
+  --color-muted:       #5C6650;
+  --color-muted-light: rgba(92, 102, 80, 0.6);
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Border radius */
+  --radius-card:   14px;
+  --radius-button: 10px;
+  --radius-badge:  6px;
+}
+
+/* ─── Global Reset ─────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 380px;
+  height: 560px;
+  font-family: var(--font-sans);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+#root {
+  width: 380px;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Scrollbar ────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--color-bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--color-accent-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-accent); }
+
+/* ─── Tap highlight ────────────────────────────────────────────── */
+a, button { -webkit-tap-highlight-color: transparent; }
+
+/* ─── Animations ───────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes accentPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(118, 142, 86, 0.45); }
+  50%       { box-shadow: 0 0 0 8px rgba(118, 142, 86, 0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(118, 142, 86, 0.08); }
+  50%       { box-shadow: 0 0 40px rgba(118, 142, 86, 0.18), 0 0 80px rgba(118, 142, 86, 0.06); }
+}
+
+/* ─── Utility Classes ──────────────────────────────────────────── */
+.animate-fade-in-up {
+  animation: fadeInUp 0.35s ease-out forwards;
+}
+
+.animate-pulse-glow {
+  animation: accentPulse 2s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 4s linear infinite;
+}
+
+/* Gradient text — matching website brand green gradient */
+.gradient-text {
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-dark) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass card — matching website beige card surface */
+.glass-card {
+  background: #E4DFB5;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 4px 20px rgba(35, 43, 27, 0.05);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 4px 24px rgba(118, 142, 86, 0.12);
+}
+
+.glass-card-glow {
+  animation: glowPulse 4s ease-in-out infinite;
+}
+
+/* Primary button — matching website's dark forest green buttons */
+.btn-primary {
+  background-color: #232B1B;
+  color: #FBE8CE;
+  border: none;
+  border-radius: var(--radius-button);
+  cursor: pointer;
+  font-weight: 700;
+  font-family: var(--font-sans);
+  transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary:hover {
+  background-color: #343F29;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(35, 43, 27, 0.15);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+/* Shimmer sweep on primary button hover */
+.btn-primary.shimmer-btn {
+  background: linear-gradient(
+    90deg,
+    #232B1B 0%,
+    #343F29 50%,
+    #232B1B 100%
+  );
+  background-size: 200% 100%;
+}
+
+.btn-primary.shimmer-btn:hover {
+  animation: shimmer 2s linear infinite;
+}
+
+/* Secondary button — transparent with border, matching website */
+.btn-secondary {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  cursor: pointer;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  box-shadow: 0 2px 8px rgba(118, 142, 86, 0.05);
+}
+
+/* Divider — matching website card borders */
+.divider {
+  height: 1px;
+  background: var(--color-border);
+}
+
+/* Accent glow */
+.accent-glow {
+  box-shadow: 0 0 30px rgba(118, 142, 86, 0.1);
+}
+
+/* Header ambient glow */
+.header-glow {
+  background: radial-gradient(ellipse 200px 80px at 50% 0%, rgba(118, 142, 86, 0.08) 0%, transparent 70%);
+}
+
+/* ss-badge — mirrors Frontend */
+.ss-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border-accent);
+  color: var(--color-accent);
+  background-color: rgba(118, 142, 86, 0.08);
+}

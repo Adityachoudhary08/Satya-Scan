@@ -13,10 +13,14 @@ out/
 # Environment files (containing secrets)
 .env
 .env.local
+.env.*
 .env.*.local
 **/.env
 **/.env.local
+**/.env.*
 **/.env.*.local
+!.env.example
+!**/.env.example
 
 # Log files
 npm-debug.log*
@@ -41,3 +45,8 @@ Thumbs.db
 # Backend uploads / temp files
 Backend/uploads/*
 !Backend/uploads/.gitkeep
+
+# Extension
+satyascan-extension/node_modules/
+satyascan-extension/dist/
+satyascan-extension/.env
