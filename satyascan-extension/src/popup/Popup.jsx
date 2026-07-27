@@ -40,6 +40,7 @@ import SectionTitle from '../components/SectionTitle';
 import EmptyState from '../components/EmptyState';
 import { STORAGE_KEY_RESULT } from '../lib/config';
 import { createT, readStoredLang, storeLang } from '../lib/i18n';
+import { verifySelectedText } from '../services/verifyService';
 
 const API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:5000';
 const WEBSITE_URL = import.meta.env.VITE_APP_WEBSITE_URL || 
@@ -1150,8 +1151,63 @@ export default function Popup({ uiLang, onToggleLang, token, user, onLogout, onS
   const [syncEnabled, setSyncEnabled] = useState(true);
   const [showMergePrompt, setShowMergePrompt] = useState(false);
   const [merging, setMerging] = useState(false);
+  
+  // Direct text input state
+  const [pasteText, setPasteText] = useState('');
 
   const t = createT(uiLang);
+
+  // ── Direct Scan Handler ─────────────────────────────────────────────────
+  const handleDirectScan = async () => {
+    const textToScan = pasteText.trim();
+    if (!textToScan) return;
+    
+    if (textToScan.length < 10) {
+      setErrorMsg('Text is too short. Please provide at least a sentence.');
+      setView('error');
+      return;
+    }
+
+    const requestId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+    activeRequestIdRef.current = requestId;
+    
+    // Set loading state
+    setLoadingText(textToScan);
+    setLastInputType('text');
+    setMainClaim(null);
+    setView('loading');
+    
+    // Save loading state to storage (in case popup closes)
+    chrome.storage.local.set({
+      [STORAGE_KEY_RESULT]: { status: 'loading', text: textToScan, requestId, inputType: 'text', savedAt: new Date().toISOString() }
+    });
+
+    try {
+      const responseLanguage = uiLang || 'en';
+      const result = await verifySelectedText(textToScan, responseLanguage, token);
+      
+      if (activeRequestIdRef.current !== requestId) return; // Cancelled
+      
+      chrome.storage.local.set({
+        [STORAGE_KEY_RESULT]: { status: 'done', result, requestId, savedAt: new Date().toISOString() }
+      });
+      
+      setResult(result);
+      setView('result');
+      saveToHistory(result);
+      setPasteText(''); // Clear input on success
+    } catch (err) {
+      if (activeRequestIdRef.current !== requestId) return; // Cancelled
+      
+      const message = err?.message || 'Something went wrong. Please try again.';
+      chrome.storage.local.set({
+        [STORAGE_KEY_RESULT]: { status: 'error', message, requestId, savedAt: new Date().toISOString() }
+      });
+      
+      setErrorMsg(message);
+      setView('error');
+    }
+  };
 
   // ── Sync history setting ──────────────────────────────────────────────────
   useEffect(() => {
@@ -1638,16 +1694,30 @@ export default function Popup({ uiLang, onToggleLang, token, user, onLogout, onS
         </div>
       )}
 
-      {/* Primary Actions */}
+      {/* Primary Actions / Direct Input */}
       <div className="px-5 flex flex-col gap-3">
-        <SectionTitle icon={<ScanSearch size={12} />} title={t('extension.actions')} />
-
-        <ActionCard
-          variant="primary"
-          icon={<FileText size={18} strokeWidth={2} />}
-          title={t('extension.verifySelectedText')}
-          description={t('extension.verifyHint')}
-        />
+        <SectionTitle icon={<FileText size={12} />} title={t('extension.verifySelectedText', 'Paste Text to Verify')} />
+        
+        <div className="flex flex-col gap-2 rounded-xl bg-[#E4DFB5] p-3 border border-[#C3CC9B]">
+          <textarea
+            value={pasteText}
+            onChange={(e) => setPasteText(e.target.value)}
+            placeholder={t('extension.verifyHint', 'Paste any news claim or text here to verify...')}
+            className="w-full h-20 text-xs bg-transparent border-none outline-none resize-none text-[#232B1B] placeholder-[#5C6650]"
+          />
+          <div className="flex justify-between items-center pt-2 border-t border-[#C3CC9B]/50">
+            <span className="text-[9px] text-[#5C6650] font-semibold">
+              {pasteText.length}/10000 chars
+            </span>
+            <button 
+              onClick={handleDirectScan}
+              disabled={!pasteText.trim()}
+              className="btn-primary px-4 py-1.5 text-xs font-black rounded-lg disabled:opacity-50 text-[#FBE8CE]"
+            >
+              Scan Now
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="divider mx-5 my-4" />

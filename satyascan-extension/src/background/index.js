@@ -67,6 +67,17 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   console.log('[Background] Notifying popup of VERIFY_LOADING');
   notifyPopup({ type: 'VERIFY_LOADING', text, requestId, inputType: 'text' });
 
+  // ── Auto-open popup and set badge ──
+  try {
+    if (chrome.action.openPopup) {
+      await chrome.action.openPopup();
+    }
+  } catch (err) {
+    console.warn('[Background] Could not open popup programmatically:', err);
+  }
+  chrome.action.setBadgeText({ text: '!' });
+  chrome.action.setBadgeBackgroundColor({ color: '#768E56' });
+
   // ── Call the backend ──
   try {
     console.log('[Background] Calling backend via verifySelectedText');
@@ -90,6 +101,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     console.log('[Background] verifySelectedText completed successfully.');
     console.log('[Background] Writing result to storage with status done');
     await saveState({ status: 'done', result, requestId });
+    chrome.action.setBadgeText({ text: '' });
     console.log('[Background] Notifying popup of VERIFY_RESULT');
     notifyPopup({ type: 'VERIFY_RESULT', result, requestId });
   } catch (err) {
@@ -112,6 +124,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const message = err?.message || 'Something went wrong. Please try again.';
     console.log('[Background] Writing result to storage with status error');
     await saveState({ status: 'error', message, requestId });
+    chrome.action.setBadgeText({ text: '' });
     console.log('[Background] Notifying popup of VERIFY_ERROR');
     notifyPopup({ type: 'VERIFY_ERROR', message, requestId });
   }
