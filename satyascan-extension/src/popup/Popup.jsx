@@ -625,35 +625,36 @@ function SourceCard({ src, index, t }) {
 
 function LoadingView({ text, onBack, mainClaim, t }) {
   const _t = t || _tEN;
-  const [step, setStep] = useState(_t('extension.loadingSteps.reading'));
+  const [currentStep, setCurrentStep] = useState(0);
+  const [barWidths, setBarWidths] = useState({});
+
+  const STEP_KEYS = ['extracting', 'searching', 'factChecking', 'analyzing', 'generating'];
 
   useEffect(() => {
-    if (!mainClaim) {
-      setStep(_t('extension.loadingSteps.reading'));
-      return;
-    }
+    // Increase step over time to simulate progress
+    const interval = setInterval(() => {
+      setCurrentStep((prev) => {
+        if (prev >= STEP_KEYS.length) {
+          clearInterval(interval);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-    setStep(_t('extension.mainClaimDetected'));
+  useEffect(() => {
+    const widths = {};
+    STEP_KEYS.forEach((_, i) => {
+      if (i < currentStep) widths[i] = 100;
+      else if (i === currentStep) widths[i] = 60 + Math.random() * 30;
+      else widths[i] = 0;
+    });
+    setBarWidths(widths);
+  }, [currentStep]);
 
-    const steps = [
-      _t('extension.loadingSteps.searching'),
-      _t('extension.loadingSteps.factChecking'),
-      _t('extension.loadingSteps.generating'),
-    ];
-    const intervals = [2000, 3000, 3000];
-    let currentIdx = 0;
-
-    const nextStep = () => {
-      if (currentIdx < steps.length) {
-        setStep(steps[currentIdx]);
-        currentIdx++;
-        setTimeout(nextStep, intervals[currentIdx - 1] || 3000);
-      }
-    };
-
-    const timeoutId = setTimeout(nextStep, 1500);
-    return () => clearTimeout(timeoutId);
-  }, [mainClaim]); // eslint-disable-line react-hooks/exhaustive-deps
+  const isComplete = currentStep >= STEP_KEYS.length;
 
   return (
     <div className="flex flex-col flex-grow h-full max-h-[500px]">
@@ -667,29 +668,84 @@ function LoadingView({ text, onBack, mainClaim, t }) {
         </button>
         <span className="text-[10px] font-bold text-[#5C6650]/60 flex items-center gap-1">
           <Loader2 size={11} className="text-[#768E56] animate-spin" />
-          {_t('extension.analyzing')}
+          {_t('extension.analyzing', 'Analyzing...')}
         </span>
       </div>
 
-      <div className="flex flex-col items-center justify-center flex-grow px-5 py-10 gap-4 animate-fade-in-up">
-        <div
-          className="w-14 h-14 rounded-2xl flex items-center justify-center"
-          style={{ background: 'rgba(118, 142, 86, 0.08)', border: '1px solid var(--color-border)' }}
-        >
-          <Loader2 size={28} className="text-[#768E56] animate-spin" />
+      <div className="flex flex-col flex-grow px-5 py-6 gap-5 animate-fade-in-up overflow-y-auto">
+        <div className="text-center">
+          <h2 className="text-[15px] font-extrabold mb-1 text-[#232B1B]">
+            {isComplete ? _t('extension.loadingComplete', 'Analysis Complete') : _t('extension.loadingTitle', 'Scanning with SatyaScan...')}
+          </h2>
+          <p className="text-[#5C6650] text-[10px]">
+            {_t('extension.waitVerify')}
+          </p>
         </div>
 
-        <div className="text-center">
-          <p className="text-sm font-black text-[#768E56] h-5 min-w-[200px]">{step}</p>
-          <p className="text-[11px] mt-1 text-[#5C6650] font-medium">{_t('extension.waitVerify')}</p>
+        <div className="space-y-4 w-full px-2">
+          {STEP_KEYS.map((key, i) => {
+            const done = i < currentStep;
+            const active = i === currentStep && !isComplete;
+
+            return (
+              <div key={key}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 border transition-all duration-500
+                      ${done
+                        ? 'bg-[#9AB17A]/20 border-[#9AB17A]'
+                        : active
+                        ? 'bg-[#9AB17A]/10 border-[#9AB17A]/60'
+                        : 'bg-[#E4DFB5] border-[#C3CC9B]'}`}>
+                      {done ? (
+                        <span className="text-[#768E56] text-[9px] font-bold">✓</span>
+                      ) : active ? (
+                        <motion.span
+                          className="w-1.5 h-1.5 rounded-full bg-[#9AB17A]"
+                          animate={{ scale: [1, 1.4, 1] }}
+                          transition={{ duration: 1, repeat: Infinity }}
+                        />
+                      ) : (
+                        <span className="w-1 h-1 rounded-full bg-[#C3CC9B]" />
+                      )}
+                    </div>
+                    <span className={`text-[10px] font-bold uppercase tracking-widest
+                      ${done ? 'text-[#232B1B]' : active ? 'text-[#232B1B]' : 'text-[#5C6650]/40'}`}>
+                      {_t(`extension.loadingSteps.${key}`)}
+                    </span>
+                  </div>
+                  <span className={`text-[9px] font-semibold uppercase tracking-wider
+                    ${done ? 'text-[#768E56]' : active ? 'text-[#768E56] font-bold' : 'text-[#5C6650]/40'}`}>
+                    {done ? _t('extension.statusComplete', 'Complete') : active ? _t('extension.statusRunning', 'Running') : _t('extension.statusPending', 'Pending')}
+                  </span>
+                </div>
+
+                <div className="ml-7 mt-0.5">
+                  <div className="h-[2px] bg-[#C3CC9B]/60 rounded-full overflow-hidden w-full">
+                    <motion.div
+                      className="h-[2px] rounded-full"
+                      style={{
+                        background: done
+                          ? 'linear-gradient(90deg, #9AB17A, #768E56)'
+                          : 'linear-gradient(90deg, #9AB17A, #5C6650)',
+                      }}
+                      initial={{ width: '0%' }}
+                      animate={{ width: done ? '100%' : active ? `${barWidths[i] || 60}%` : '0%' }}
+                      transition={{ duration: 0.8, ease: 'easeOut' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {mainClaim && (
-          <div className="w-full rounded-xl px-4 py-3 mt-2 bg-[#E4DFB5] border border-[#C3CC9B] text-left animate-fade-in-up">
-            <p className="text-[10px] font-bold uppercase tracking-widest mb-1 text-[#5C6650]">
-              {_t('extension.detectedMainClaim')}
+          <div className="w-full rounded-xl px-4 py-3 mt-1 bg-[#E4DFB5] border border-[#C3CC9B] text-left animate-fade-in-up">
+            <p className="text-[9px] font-bold uppercase tracking-widest mb-1 text-[#5C6650]">
+              {_t('extension.mainClaimDetected')}
             </p>
-            <p className="text-xs leading-snug text-[#232B1B] font-bold">"{mainClaim}"</p>
+            <p className="text-[11px] leading-snug text-[#232B1B] font-bold">"{mainClaim}"</p>
           </div>
         )}
       </div>
