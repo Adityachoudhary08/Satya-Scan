@@ -257,7 +257,11 @@ function formatGeminiError(error, evidenceCollected = false, responseLanguage = 
   let userMessage = isHi ? 'जेमिनी सेवा अस्थायी रूप से अनुपलब्ध है।' : 'Gemini is temporarily unavailable.';
   let statusCode = 503;
 
-  if (combined.includes('429') || combined.includes('quota') || combined.includes('limit')) {
+  if (combined.includes('404') || combined.includes('not found') || combined.includes('no longer available')) {
+    errorType = 'model_unavailable';
+    userMessage = isHi ? 'चयनित एआई मॉडल अनुपलब्ध है।' : 'Selected AI model is unavailable or not found.';
+    statusCode = 404;
+  } else if (combined.includes('429') || combined.includes('quota') || combined.includes('limit')) {
     errorType = 'quota';
     userMessage = isHi ? 'जेमिनी एपीआई कोटा समाप्त हो गया है।' : 'Gemini API quota exceeded.';
     statusCode = 429;
@@ -265,7 +269,7 @@ function formatGeminiError(error, evidenceCollected = false, responseLanguage = 
     errorType = 'timeout';
     userMessage = isHi ? 'एआई सत्यापन सेवा का समय समाप्त हो गया।' : 'AI verification service timed out.';
     statusCode = 504;
-  } else if (combined.includes('network') || combined.includes('econnreset') || combined.includes('fetch')) {
+  } else if (/econnreset|econnrefused|fetch failed|failed to fetch/i.test(combined)) {
     errorType = 'network';
     userMessage = isHi ? 'जेमिनी के साथ नेटवर्क कनेक्शन की समस्या।' : 'Network connection issue with Gemini.';
     statusCode = 503;

@@ -15,6 +15,7 @@ const analyzeRoutes = require('./routes/analyze');
 const historyRoutes = require('./routes/history');
 const reportRoutes = require('./routes/report');
 const healthRoutes = require('./routes/health');
+const deepfakeRoutes = require('./routes/deepfake');
 
 const app = express();
 
@@ -42,6 +43,7 @@ app.use('/api/analyze', analyzeRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/report', reportRoutes);
 app.use('/api/health', healthRoutes);
+app.use('/api/deepfake', deepfakeRoutes);
 
 // Error Handling
 app.use(errorHandler);

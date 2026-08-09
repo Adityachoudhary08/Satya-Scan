@@ -104,6 +104,12 @@ export default function Navbar() {
           >
             {t('nav.analyze')}
           </Link>
+          <Link
+            to="/deepfake"
+            className="text-[#5C6650] hover:text-[#232B1B] transition-colors font-semibold no-underline"
+          >
+            Deepfake
+          </Link>
           {isLoggedIn && location.pathname !== '/history' && (
             <Link
               to="/history"
@@ -177,6 +183,9 @@ export default function Navbar() {
         <div className="md:hidden mt-3 pb-4 border-t border-[#C3CC9B] pt-4 space-y-3 px-1">
           <Link to="/analyze" className="block text-[#5C6650] hover:text-[#232B1B] py-1.5 transition-colors no-underline font-semibold" onClick={() => setMenuOpen(false)}>
             {t('nav.analyze')}
+          </Link>
+          <Link to="/deepfake" className="block text-[#5C6650] hover:text-[#232B1B] py-1.5 transition-colors no-underline font-semibold" onClick={() => setMenuOpen(false)}>
+            Deepfake
           </Link>
           {isLoggedIn && location.pathname !== '/history' && (
             <Link to="/history" className="block text-[#5C6650] hover:text-[#232B1B] py-1.5 transition-colors no-underline font-semibold" onClick={() => setMenuOpen(false)}>

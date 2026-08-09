@@ -12,9 +12,10 @@ import ReportPage from './pages/ReportPage';
 import SharedReportPage from './pages/SharedReportPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
+import DeepfakePage from './pages/DeepfakePage';
 
 // Pages that have their own built-in top bar — don't show the global Navbar
-const PAGES_WITH_OWN_NAV = ['/', '/analyze', '/analyze-page', '/results', '/result', '/login', '/signup'];
+const PAGES_WITH_OWN_NAV = ['/', '/analyze', '/analyze-page', '/results', '/result', '/login', '/signup', '/deepfake'];
 
 function NotFoundPage() {
   const { t } = useTranslation();
@@ -68,6 +69,7 @@ export default function App() {
                 <Route path="/report/:id" element={<SharedReportPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/signup" element={<SignupPage />} />
+                <Route path="/deepfake" element={<DeepfakePage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </Layout>
