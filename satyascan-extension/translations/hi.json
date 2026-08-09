@@ -478,5 +478,13 @@
     "notFound": "404",
     "notFoundMsg": "पृष्ठ नहीं मिला",
     "goHome": "होम पर जाएं"
+  },
+  "deepfake": {
+    "result": {
+      "flagged": "डीपफेक का पता चला",
+      "flaggedSub": "संशोधित या AI-उत्पन्न",
+      "authentic": "प्रामाणिक छवि",
+      "authenticSub": "कोई डीपफेक पैटर्न नहीं मिला"
+    }
   }
 }

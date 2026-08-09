@@ -4,7 +4,7 @@ const { verifyText } = require('./textVerificationService');
 const { extractExifData } = require('../utils/exifParser');
 const { buildVisualAuthenticityPrompt } = require('../prompts/imageVisualAuthenticityPrompt');
 const { buildOcrExtractionPrompt } = require('../prompts/imageOcrExtractionPrompt');
-const { extractTextWithTesseract } = require('./tesseractOcrService');
+const { extractTextWithTesseract, cleanOcrText, validateOCRText } = require('./tesseractOcrService');
 const { resolveLanguage, getProcessingTime } = require('../utils/helpers');
 
 /**
@@ -12,11 +12,13 @@ const { resolveLanguage, getProcessingTime } = require('../utils/helpers');
  */
 function normalizeVisualStatus(rawStatus) {
   const s = String(rawStatus || '').toUpperCase().trim().replace(/[\s-]+/g, '_');
-  if (s === 'REAL' || s === 'REAL_PHOTOGRAPH' || s === 'AUTHENTIC' || s === 'LIKELY_AUTHENTIC') return 'Real';
+  if (s === 'REAL' || s === 'REAL_PHOTOGRAPH' || s === 'AUTHENTIC') return 'Real';
+  if (s === 'LIKELY_AUTHENTIC' || s === 'LIKELY_REAL') return 'Likely Real';
   if (s === 'AI_GENERATED' || s === 'LIKELY_AI_GENERATED' || s === 'SYNTHETIC' || s === 'GENERATED') return 'AI Generated';
   if (s === 'AI_EDITED' || s === 'MANIPULATED' || s === 'EDITED' || s === 'ALTERED' || s === 'TAMPERED') return 'AI Edited';
   if (s === 'DEEPFAKE' || s === 'FACE_SWAP') return 'Deepfake';
-  return 'Uncertain';
+  if (s === 'ANALYSIS_LIMITED' || s === 'LIMITED_ANALYSIS') return 'Analysis Limited';
+  return 'Analysis Limited';
 }
 
 /**
@@ -67,10 +69,21 @@ function isMeaningfulFactualClaim(rawText, detectedClaim) {
   return true;
 }
 
+function classifyOcrText(text, geminiClassification) {
+  const clean = String(text || '').trim();
+  const letters = clean.replace(/[^\p{L}]/gu, '');
+  const uppercaseRatio = letters ? (letters.match(/[A-Z]/g) || []).length / letters.length : 0;
+  const words = clean.split(/\s+/).filter(Boolean);
+  const isShortAllCaps = words.length <= 12 && uppercaseRatio > 0.8 && !/[.!?]/.test(clean);
+  if (isShortAllCaps) return { type: 'thumbnail', shouldFactCheck: false, reason: 'Decorative thumbnail text detected' };
+  if (geminiClassification === false) return { type: 'caption', shouldFactCheck: false, reason: 'Text is not a factual claim' };
+  return { type: 'claim', shouldFactCheck: true, reason: null };
+}
+
 /**
  * Local Forensic Heuristic Analysis
  * Runs when external API is throttled or offline, inspecting metadata, file structure, and compression.
- * Guarantees a valid status (Real | AI Generated | AI Edited | Deepfake | Uncertain) with genuine evidence bullets.
+ * Never guesses an AI verdict without an attributable on-file signature.
  */
 function performLocalForensics(imageBuffer, exifData) {
   const metadataSummary = (exifData?.summary || '').toLowerCase();
@@ -131,18 +144,13 @@ function performLocalForensics(imageBuffer, exifData) {
     };
   }
 
-  // 4. Default Forensic Inspection for stripped / synthetic images
+  // Missing metadata is normal on social platforms, and cannot support an AI verdict.
   return {
-    status: 'AI Generated',
-    confidence: 86,
+    status: 'Analysis Limited',
+    confidence: 45,
     evidence: [
-      'Skin texture appears overly uniform with reduced natural pore variation',
-      'Hair strands merge unnaturally in perimeter regions instead of remaining individually defined',
-      'Background blur transitions show diffusion-style smoothing rather than optical lens blur',
-      'Facial lighting gradients show synthetic consistency without natural shadow variance',
-      'Fine edges around subject boundaries exhibit subtle generative blending artifacts',
-      'The image lacks realistic optical camera sensor noise in flat regions',
-      'Overall image composition matches common diffusion-model generated visual formats',
+      'No Gemini Vision result was available and no decisive local metadata signature was found.',
+      'Stripped or absent metadata alone is not evidence that an image is AI generated or manipulated.',
     ],
   };
 }
@@ -264,12 +272,24 @@ async function analyzeVisualAuthenticity(imageBuffer, mimeType, exifData, select
       confidence = Math.min(70, Math.max(40, confidence));
     }
 
-    logger.info('[Image Dual Architecture] Module 1 complete via Gemini Vision', { status, confidence, evidenceCount: evidence.length });
+    // Only Gemini can make visual observations. Do not pad its evidence with
+    // templates or turn an uncertain result into an AI-generated verdict.
+    evidence = rawEvidenceList.slice(0, 8);
+    const requiredFindings = ['AI Generated', 'Real', 'Likely Real', 'AI Edited', 'Deepfake'].includes(status) ? 4 : 0;
+    if (evidence.length < requiredFindings) {
+      status = 'Analysis Limited';
+      confidence = Math.min(confidence, 50);
+      evidence = evidence.length ? evidence : ['Vision analysis returned too little image-specific evidence for a reliable verdict.'];
+    }
+
+    logger.info('[Image Dual Architecture] Module 1 complete via Gemini Vision', { status, confidence, evidenceCount: evidence.length, model: raw._model, analysisMode: 'gemini_vision' });
 
     return {
       status,
       confidence,
       evidence,
+      analysisMode: 'gemini_vision',
+      model: raw._model,
       error: null,
     };
   } catch (error) {
@@ -288,6 +308,8 @@ async function analyzeVisualAuthenticity(imageBuffer, mimeType, exifData, select
       status: localResult.status,
       confidence: safeConfidence,
       evidence: localResult.evidence,
+      analysisMode: localResult.status === 'Analysis Limited' ? 'limited_analysis' : 'local_fallback',
+      fallbackReason: error.message,
       error: null,
     };
   }
@@ -321,16 +343,20 @@ async function analyzeOcrClaimVerification(imageBuffer, mimeType, selectedLangua
 
   let rawText = (ocrRaw?.extractedText || '').trim();
   let detectedClaim = (ocrRaw?.detectedClaim || '').trim();
+  let ocrSource = rawText || detectedClaim ? 'gemini_vision' : null;
+  let ocrConfidence = Number.isFinite(ocrRaw?.confidence) ? ocrRaw.confidence : (ocrSource ? 85 : 0);
 
   // 2. If Gemini OCR failed or returned empty text, engage local Tesseract OCR fallback
   if (!rawText && !detectedClaim) {
     try {
-      const tesseractText = await extractTextWithTesseract(imageBuffer);
-      if (tesseractText && tesseractText.length > 2) {
-        rawText = tesseractText;
-        detectedClaim = tesseractText;
+      const tesseractResult = await extractTextWithTesseract(imageBuffer);
+      if (tesseractResult?.text) {
+        rawText = tesseractResult.text;
+        detectedClaim = tesseractResult.text;
+        ocrConfidence = tesseractResult.confidence;
+        ocrSource = tesseractResult.source;
         ocrError = null; // Successfully extracted text via Tesseract fallback
-        logger.info('[Image Dual Architecture] Tesseract OCR successfully extracted text from image:', { rawText });
+        logger.info('[Image Dual Architecture] Tesseract OCR successfully extracted text from image:', { rawText, ocrConfidence });
       }
     } catch (tessErr) {
       console.error("Tesseract OCR fallback failed:", tessErr);
@@ -338,8 +364,24 @@ async function analyzeOcrClaimVerification(imageBuffer, mimeType, selectedLangua
     }
   }
 
-  const claim = (detectedClaim && detectedClaim.length >= 4) ? detectedClaim : rawText;
-  const hasMeaningfulClaim = isMeaningfulFactualClaim(rawText, detectedClaim);
+  rawText = cleanOcrText(rawText);
+  detectedClaim = cleanOcrText(detectedClaim);
+  let claim = (detectedClaim && detectedClaim.length >= 4) ? detectedClaim : rawText;
+  let quality = validateOCRText(claim, ocrConfidence);
+
+  // A correction pass is useful only for text that passed basic quality checks;
+  // never ask an LLM to invent a headline from garbage OCR.
+  if (quality.hasMeaningfulClaim && ocrSource === 'tesseract_preprocessed') {
+    try {
+      const correction = await geminiService.analyzeText(`You are cleaning OCR extracted social-media thumbnail text. Return only JSON: {"headline":"..."}. Do not explain. OCR: ${claim}`);
+      const corrected = cleanOcrText(correction?.headline || correction?.text || '');
+      if (corrected && validateOCRText(corrected, ocrConfidence).hasMeaningfulClaim) claim = corrected;
+    } catch (error) {
+      logger.warn('[Image Dual Architecture] OCR correction unavailable; using validated OCR', { message: error.message });
+    }
+  }
+  const classification = classifyOcrText(claim, ocrRaw?.isFactualClaim);
+  const hasMeaningfulClaim = quality.hasMeaningfulClaim && classification.shouldFactCheck && isMeaningfulFactualClaim(rawText, claim);
 
   // User requested debug logs
   console.log("OCR RAW:", rawText);
@@ -384,20 +426,24 @@ async function analyzeOcrClaimVerification(imageBuffer, mimeType, selectedLangua
     const nonClaimResult = {
       hasMeaningfulClaim: false,
       hasText: true,
-      extractedText: rawText,
+      extractedText: rawText || null,
       verdict: null,
       confidence: null,
       reason: null,
       sources: [],
-      error: null,
+      error: quality.reason || classification.reason || 'OCR extraction unreliable',
+      ocrSource,
+      ocrConfidence: quality.confidence,
     };
     console.log("OCR RESULT:", nonClaimResult);
     return nonClaimResult;
   }
 
   // 4. Meaningful claim detected -> forward to SatyaScan fact-checking pipeline
-  logger.info('[Image Dual Architecture] Module 2: Meaningful claim detected, forwarding to existing SatyaScan fact-check engine', {
+  logger.info('[FACTCHECK] OCR claim accepted', {
     claimToVerify: claim,
+    ocrSource,
+    ocrConfidence: quality.confidence,
   });
 
   try {
@@ -467,6 +513,8 @@ async function analyzeOcrClaimVerification(imageBuffer, mimeType, selectedLangua
       reason,
       sources,
       error: null,
+      ocrSource,
+      ocrConfidence: quality.confidence,
     };
 
     console.log("OCR RESULT:", ocrClaimVerification);
@@ -590,12 +638,18 @@ async function verifyImage(imageBuffer, mimeType, originalFilename, selectedLang
     _exifData: exifData,
   };
 
-  logger.info('Two-Card Image Verification complete', {
+  const crossAnalysisExplanation = ocrClaimVerification.hasMeaningfulClaim
+    ? `Image authenticity (${visualAuthenticity.status}) and the text claim (${ocrClaimVerification.verdict}) are independent checks. An image can be digitally generated while its displayed claim is factually supported, or vice versa.`
+    : null;
+  result.crossAnalysisExplanation = crossAnalysisExplanation;
+
+  logger.info('[VISUAL] Two-card image verification complete', {
     visualStatus: visualAuthenticity.status,
     visualConfidence: visualAuthenticity.confidence,
     hasMeaningfulClaim: ocrClaimVerification.hasMeaningfulClaim,
     ocrVerdict: ocrClaimVerification.verdict,
     processingTime,
+    crossAnalysisExplanation,
   });
 
   return result;

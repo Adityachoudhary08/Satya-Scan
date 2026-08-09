@@ -478,5 +478,13 @@
     "notFound": "404",
     "notFoundMsg": "Page not found",
     "goHome": "Go Home"
+  },
+  "deepfake": {
+    "result": {
+      "flagged": "Deepfake Detected",
+      "flaggedSub": "Manipulated or AI-Generated",
+      "authentic": "Authentic Image",
+      "authenticSub": "No deepfake patterns detected"
+    }
   }
 }

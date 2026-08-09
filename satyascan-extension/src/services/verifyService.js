@@ -1,24 +1,41 @@
 /**
  * src/services/verifyService.js
  *
- * Calls the SatyaScan backend to verify a piece of selected text.
+ * Calls the SatyaScan backend to verify text, URLs, or images.
  *
  * Responsibilities:
- *  - Build the correct request payload for the /api/analyze endpoint
- *  - Handle HTTP-level errors (non-2xx responses)
- *  - Return a normalized result object to the caller
- *
- * Does NOT interact with Chrome APIs — stays pure and testable.
+ *  - Build the correct request payload for /api/analyze
+ *  - Handle HTTP-level errors (non-2xx responses) and timeouts
+ *  - Return normalized result objects to the caller
  */
 
 import { ANALYZE_ENDPOINT, MAX_TEXT_LENGTH } from '../lib/config';
 
 /**
- * Verify a piece of user-selected text against the SatyaScan backend.
+ * Get active tab URL and title safely in Chrome extension.
+ */
+export async function getActiveTabUrl() {
+  if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tabs && tabs[0]) {
+        return {
+          url: tabs[0].url || '',
+          title: tabs[0].title || ''
+        };
+      }
+    } catch (err) {
+      console.warn('[VerifyService] Could not query active tab:', err);
+    }
+  }
+  return { url: '', title: '' };
+}
+
+/**
+ * Verify a piece of user-selected or typed text against the SatyaScan backend.
  *
- * @param {string} text - The highlighted text to verify (max 10,000 chars)
- * @returns {Promise<VerifyResult>} Normalized result object
- * @throws {Error} If the network request fails or the backend returns an error
+ * @param {string} text - The text to verify (max 10,000 chars)
+ * @returns {Promise<object>} Normalized result object
  */
 export async function verifySelectedText(text, responseLanguage = 'en', token = null) {
   if (!text || typeof text !== 'string') {
@@ -70,23 +87,16 @@ export async function verifySelectedText(text, responseLanguage = 'en', token = 
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  console.log('[VerifyService] POST /api/analyze');
-  console.log('[VerifyService] Fetch URL:', requestUrl);
-  console.log('[VerifyService] Request body:', JSON.stringify(payload));
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
-    console.warn('[VerifyService] Aborting request due to 25s timeout');
     controller.abort();
   }, 25000);
 
-  const startTime = Date.now();
   let response;
   let rawText = '';
   let data = null;
 
   try {
-    console.log('[VerifyService] Fetch started with 25s AbortController timeout...');
     response = await fetch(requestUrl, {
       method: 'POST',
       headers,
@@ -94,11 +104,7 @@ export async function verifySelectedText(text, responseLanguage = 'en', token = 
       signal: controller.signal,
     });
   } catch (networkError) {
-    const duration = Date.now() - startTime;
     const isTimeout = networkError.name === 'AbortError';
-    console.error('[VerifyService] Fetch failed:', networkError);
-    console.error('[VerifyService] Response time (failed):', duration + 'ms');
-
     return {
       success: false,
       errorType: isTimeout ? '504' : 'network',
@@ -113,30 +119,17 @@ export async function verifySelectedText(text, responseLanguage = 'en', token = 
     clearTimeout(timeoutId);
   }
 
-  const duration = Date.now() - startTime;
   const status = response.status;
-  console.log('[VerifyService] Response status:', status, 'Time:', duration + 'ms');
-
   try {
     rawText = await response.text();
-    console.log('[VerifyService] Raw response text length:', rawText.length);
-  } catch (textErr) {
-    console.error('[VerifyService] Failed reading response text:', textErr);
-    rawText = '';
-  }
-
-  try {
     if (rawText) {
       data = JSON.parse(rawText);
-      console.log('[VerifyService] JSON parsed successfully');
     }
   } catch (parseError) {
-    console.error('[VerifyService] JSON parse error:', parseError.message);
+    console.warn('[VerifyService] Response parse warning:', parseError.message);
   }
 
-  // Handle explicit non-ok HTTP status codes or backend failure payloads
   if (!response.ok || (data && data.success === false)) {
-    console.warn('[VerifyService] Error response detected. Status:', status, 'Data:', data);
     const errorType = String(status || data?.errorType || 'default');
     const devDetails = data?.message || data?.error || rawText.slice(0, 300) || `HTTP ${status} ${response.statusText}`;
 
@@ -184,7 +177,6 @@ export async function verifySelectedText(text, responseLanguage = 'en', token = 
   }
 
   if (!data) {
-    console.log('[VerifyService] No parsed data available');
     return {
       success: false,
       errorType: '502',
@@ -197,68 +189,175 @@ export async function verifySelectedText(text, responseLanguage = 'en', token = 
     };
   }
 
-  console.log('[VerifyService] Normalizing successful result');
   return normalizeResult(data, trimmed);
 }
 
 /**
+ * Verify a URL against the SatyaScan backend.
+ */
+export async function verifyUrl(url, responseLanguage = 'en', token = null) {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return {
+      success: false,
+      errorType: 'default',
+      statusCode: 400,
+      message: responseLanguage === 'hi' ? 'सत्यापन के लिए कोई URL नहीं दिया गया।' : 'No URL provided for verification.',
+      devDetails: 'Validation error: Empty URL'
+    };
+  }
+
+  const trimmed = url.trim();
+  const payload = {
+    type: 'url',
+    content: trimmed,
+    responseLanguage: responseLanguage,
+  };
+
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+  try {
+    const response = await fetch(ANALYZE_ENDPOINT, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || (data && data.success === false)) {
+      return {
+        success: false,
+        errorType: String(response.status || 'default'),
+        statusCode: response.status || 500,
+        message: data?.message || (responseLanguage === 'hi' ? 'URL का विश्लेषण करने में विफल।' : 'Failed to analyze URL content.'),
+        devDetails: data?.error || `HTTP ${response.status}`
+      };
+    }
+
+    return {
+      ...normalizeResult(data, trimmed),
+      inputType: 'url',
+      url: trimmed
+    };
+  } catch (err) {
+    const isTimeout = err.name === 'AbortError';
+    return {
+      success: false,
+      errorType: isTimeout ? '504' : 'network',
+      statusCode: isTimeout ? 504 : 0,
+      message: isTimeout
+        ? (responseLanguage === 'hi' ? 'URL विश्लेषण में अधिक समय लगा।' : 'URL analysis timed out.')
+        : (responseLanguage === 'hi' ? 'नेटवर्क त्रुटि हुई।' : 'Network connection error.'),
+      devDetails: err.message
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Verify an image against the SatyaScan backend (OCR + Gemini Vision Analysis).
+ */
+export async function verifyImage(imageFile, responseLanguage = 'en', token = null) {
+  if (!imageFile) {
+    return {
+      success: false,
+      errorType: 'default',
+      statusCode: 400,
+      message: responseLanguage === 'hi' ? 'कोई छवि फ़ाइल प्रदान नहीं की गई।' : 'No image file provided.',
+      devDetails: 'Validation error: Missing image file'
+    };
+  }
+
+  const formData = new FormData();
+  formData.append('type', 'image');
+  formData.append('file', imageFile);
+  formData.append('selectedLanguage', responseLanguage);
+  formData.append('responseLanguage', responseLanguage);
+
+  const headers = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+  try {
+    const response = await fetch(ANALYZE_ENDPOINT, {
+      method: 'POST',
+      headers,
+      body: formData,
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || data.success === false) {
+      return {
+        success: false,
+        errorType: String(response.status || 'default'),
+        statusCode: response.status || 500,
+        message: data?.message || (responseLanguage === 'hi' ? 'छवि का विश्लेषण करने में विफल।' : 'Image analysis failed.'),
+        devDetails: data?.error || `HTTP ${response.status}`
+      };
+    }
+
+    return {
+      ...normalizeResult(data, imageFile.name || 'Uploaded image'),
+      inputType: 'image',
+      originalFileName: imageFile.name
+    };
+  } catch (err) {
+    const isTimeout = err.name === 'AbortError';
+    return {
+      success: false,
+      errorType: isTimeout ? '504' : 'network',
+      statusCode: isTimeout ? 504 : 0,
+      message: isTimeout
+        ? (responseLanguage === 'hi' ? 'छवि विश्लेषण का समय समाप्त हो गया।' : 'Image analysis timed out.')
+        : (responseLanguage === 'hi' ? 'नेटवर्क त्रुटि हुई।' : 'Network connection error during image analysis.'),
+      devDetails: err.message
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Map the raw backend response to a clean, stable shape.
- * If the backend schema changes, only this function needs updating.
- *
- * @param {object} data - Raw backend response
- * @param {string} originalText - The text that was verified
- * @returns {VerifyResult}
  */
 function normalizeResult(data, originalText) {
-  // Pull the first claim's verdict/confidence if claims exist
   const firstClaim = Array.isArray(data.claims) && data.claims.length > 0
     ? data.claims[0]
     : null;
 
   return {
     ...data,
-    /** Top-level verdict string e.g. "Likely False", "Likely True" */
     verdict: data.pageVerdict
       || firstClaim?.verdict
       || data.verdict
       || 'Unverified',
-
-    /** Trust score 0–100 */
     trustScore: typeof data.trustScore === 'number' ? data.trustScore : null,
-
-    /** Confidence 0–1 from the first claim */
     confidence: typeof firstClaim?.confidence === 'number'
       ? firstClaim.confidence
       : null,
-
-    /** Human-readable explanation */
     explanation: firstClaim?.reasoning
       || (Array.isArray(data.aiReasoning) ? data.aiReasoning.join(' ') : data.aiReasoning)
       || 'No explanation available.',
-
-    /** The text that was verified (truncated for display) */
     originalText: originalText,
-
-    /** All raw claims for potential future use */
     claims: data.claims || [],
-
-    /** ISO timestamp */
     verifiedAt: data.verifiedAt || new Date().toISOString(),
-
-    /** Response language from backend */
     responseLanguage: data.responseLanguage || 'en',
   };
 }
-
-
-
-/**
- * @typedef {object} VerifyResult
- * @property {string}      verdict       - Verdict label
- * @property {number|null} trustScore    - 0–100 trust score
- * @property {number|null} confidence    - 0–1 confidence from first claim
- * @property {string}      explanation   - Human-readable reasoning
- * @property {string}      originalText  - Truncated input text
- * @property {Array}       claims        - All raw claims
- * @property {string}      verifiedAt    - ISO timestamp
- */

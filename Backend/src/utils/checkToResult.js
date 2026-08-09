@@ -9,18 +9,68 @@ function checkToResult(check) {
     return {
       inputType: 'image',
       trustScore: check.trustScore,
-      verdict: check.imageVerdict,
-      confidence: check.imageConfidence,
+      verdict: check.visualAuthenticity?.status || check.imageVerdict || 'Uncertain',
+      confidence: check.visualAuthenticity?.confidence ?? check.imageConfidence ?? 50,
       aiProbability: check.aiProbability,
       deepfakeProbability: check.deepfakeProbability,
       manipulationProbability: check.manipulationProbability,
       metadataIntegrity: check.metadataIntegrity,
-      findings: check.findings || [],
-      summary: check.imageSummary,
+      findings: check.findings || check.visualAuthenticity?.evidence || [],
+      evidence: check.visualAuthenticity?.evidence || check.findings || [],
+      visualAuthenticity: check.visualAuthenticity || {
+        status: check.imageVerdict || 'Uncertain',
+        confidence: check.imageConfidence || 50,
+        evidence: check.findings || [],
+      },
+      ocrClaimVerification: check.ocrClaimVerification || {
+        hasText: false,
+        extractedText: null,
+        verdict: null,
+        confidence: null,
+        sources: [],
+      },
+      extractedText: check.ocrClaimVerification?.extractedText || null,
+      claimVerdict: check.ocrClaimVerification?.verdict || null,
+      summary: check.imageSummary || check.detectionReason,
       language: check.language,
       detectedLanguage: check.detectedLanguage,
       responseLanguage: check.responseLanguage,
       processingTime: check.processingTime,
+      checkId,
+    };
+  }
+
+  if (check.inputType === 'video') {
+    const isManipulated =
+      check.imageVerdict === 'LIKELY DEEPFAKE' ||
+      (check.deepfakePercentage != null && check.deepfakePercentage > 50) ||
+      (check.deepfakeFrames != null && check.totalFramesAnalyzed != null && check.deepfakeFrames > check.totalFramesAnalyzed / 2);
+
+    const confidence =
+      (check.imageConfidence != null && check.imageConfidence > 0)
+        ? check.imageConfidence
+        : (check.deepfakePercentage != null && check.deepfakePercentage > 0)
+        ? Math.max(check.deepfakePercentage, 100 - check.deepfakePercentage)
+        : (check.trustScore != null ? (isManipulated ? 100 - check.trustScore : check.trustScore) : 85);
+
+    return {
+      inputType: 'video',
+      trustScore: check.trustScore ?? (isManipulated ? 20 : 85),
+      verdict: check.imageVerdict || (isManipulated ? 'LIKELY DEEPFAKE' : 'LIKELY REAL'),
+      confidence,
+      isDeepfake: isManipulated,
+      totalFramesAnalyzed: check.totalFramesAnalyzed || 0,
+      deepfakeFrames: check.deepfakeFrames || 0,
+      deepfakePercentage: check.deepfakePercentage || 0,
+      detectionReason: check.detectionReason || '',
+      manipulationTechnique: check.manipulationTechnique || '',
+      suspiciousAreas: check.suspiciousAreas || check.findings || [],
+      authenticAreas: check.authenticAreas || check.verifiedFacts || [],
+      confidenceExplanation: check.confidenceExplanation || '',
+      recommendation: check.recommendation || '',
+      analyzedBy: check.analyzedBy && check.analyzedBy.length > 0 ? check.analyzedBy : ['OpenCV + Hugging Face + Gemini AI'],
+      findings: check.suspiciousAreas || check.findings || [],
+      summary: check.detectionReason || '',
       checkId,
     };
   }

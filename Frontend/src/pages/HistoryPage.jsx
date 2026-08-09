@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Clock, FileText, Link2, Image, Trash2, ChevronLeft, ChevronRight, History, Lock } from 'lucide-react';
+import { Clock, FileText, Link2, Image, Video, Trash2, ChevronLeft, ChevronRight, History, Lock } from 'lucide-react';
 import { getHistory, deleteHistoryItem, deleteAllHistory } from '../api/api';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
@@ -12,11 +12,16 @@ function getTrustColor(score) {
   return '#C62828';
 }
 
-function getVerdictSummary(claims = [], inputType, imageVerdict, visualAuthenticity, ocrClaimVerification) {
+function getVerdictSummary(claims = [], inputType, imageVerdict, visualAuthenticity, ocrClaimVerification, check = {}) {
   if (inputType === 'image') {
     const vStatus = visualAuthenticity?.status || imageVerdict?.replace(/_/g, ' ') || 'Visual analysis';
     const oVerdict = ocrClaimVerification?.verdict ? ` · Text: ${ocrClaimVerification.verdict}` : '';
     return `Image: ${vStatus}${oVerdict}`;
+  }
+  if (inputType === 'video') {
+    const vStatus = imageVerdict || (check.deepfakePercentage > 0 ? `${check.deepfakePercentage}% Flagged` : 'Analyzed');
+    const fStats = check.totalFramesAnalyzed ? ` · ${check.deepfakeFrames || 0}/${check.totalFramesAnalyzed} frames` : '';
+    return `Video: ${vStatus}${fStats}`;
   }
   const counts = { True: 0, Supported: 0, False: 0, Contradicted: 0, Unverified: 0, Misleading: 0 };
   claims.forEach((c) => { if (c.verdict in counts) counts[c.verdict]++; });
@@ -31,6 +36,7 @@ function InputTypeBadge({ type }) {
     text: { icon: FileText, label: 'Text', color: '#768E56' },
     url: { icon: Link2, label: 'URL', color: '#5E35B1' },
     image: { icon: Image, label: 'Image', color: '#00796B' },
+    video: { icon: Video, label: 'Video', color: '#D87D0A' },
   };
   const { icon: Icon, label, color } = config[type] || config.text;
   return (
@@ -119,6 +125,10 @@ export default function HistoryPage() {
   };
 
   const handleClick = (check) => {
+    if (check.inputType === 'video') {
+      navigate('/video-analysis', { state: { preloadedResult: check } });
+      return;
+    }
     navigate(`/results/${check._id}`);
   };
 
@@ -233,7 +243,7 @@ export default function HistoryPage() {
                     </p>
 
                     <p className="text-[#5C6650]/70 text-xs">
-                      {getVerdictSummary(check.claims, check.inputType, check.imageVerdict, check.visualAuthenticity, check.ocrClaimVerification)}
+                      {getVerdictSummary(check.claims, check.inputType, check.imageVerdict, check.visualAuthenticity, check.ocrClaimVerification, check)}
                     </p>
                   </div>
 

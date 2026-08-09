@@ -32,7 +32,15 @@ import {
   Brain,
   Gauge,
   Target,
-  Search
+  Search,
+  Mic,
+  MicOff,
+  Link as LinkIcon,
+  Image as ImageIcon,
+  Upload,
+  Radio,
+  FileImage,
+  X
 } from 'lucide-react';
 
 import ActionCard from '../components/ActionCard';
@@ -40,7 +48,12 @@ import SectionTitle from '../components/SectionTitle';
 import EmptyState from '../components/EmptyState';
 import { STORAGE_KEY_RESULT } from '../lib/config';
 import { createT, readStoredLang, storeLang } from '../lib/i18n';
-import { verifySelectedText } from '../services/verifyService';
+import {
+  verifySelectedText,
+  verifyUrl,
+  verifyImage,
+  getActiveTabUrl
+} from '../services/verifyService';
 
 const API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:5000';
 const WEBSITE_URL = import.meta.env.VITE_APP_WEBSITE_URL || 
@@ -1270,9 +1283,25 @@ export default function Popup({ uiLang, onToggleLang, token, user, onLogout, onS
   // Direct text input state
   const [pasteText, setPasteText] = useState('');
 
+  // Multi-mode input tabs: 'text' | 'url' | 'image' | 'voice'
+  const [inputTab, setInputTab] = useState('text');
+
+  // URL mode state
+  const [urlInput, setUrlInput] = useState('');
+  const [fetchingTabUrl, setFetchingTabUrl] = useState(false);
+
+  // Image / Deepfake mode state
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Voice / Mic state
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef(null);
+
   const t = createT(uiLang);
 
-  // ── Direct Scan Handler ─────────────────────────────────────────────────
+  // ── Direct Text Scan Handler ─────────────────────────────────────────────
   const handleDirectScanText = async (textToScan) => {
     const trimmed = (textToScan || '').trim();
     if (!trimmed) return;
@@ -1372,6 +1401,279 @@ export default function Popup({ uiLang, onToggleLang, token, user, onLogout, onS
 
   const handleDirectScan = () => {
     handleDirectScanText(pasteText);
+  };
+
+  // ── Auto-fill Active Tab URL Handler ──
+  const handleAutoFillActiveTab = async () => {
+    setFetchingTabUrl(true);
+    try {
+      const tabInfo = await getActiveTabUrl();
+      if (tabInfo?.url && tabInfo.url.startsWith('http')) {
+        setUrlInput(tabInfo.url);
+      }
+    } catch (err) {
+      console.warn('[Popup] Could not fetch active tab URL:', err);
+    } finally {
+      setFetchingTabUrl(false);
+    }
+  };
+
+  // ── URL Scan Handler ──
+  const handleDirectScanUrl = async () => {
+    const trimmed = urlInput.trim();
+    if (!trimmed) return;
+
+    const requestId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+    activeRequestIdRef.current = requestId;
+
+    setLastScanText(trimmed);
+    setLoadingText(trimmed);
+    setLastInputType('url');
+    setMainClaim(null);
+    setView('loading');
+
+    chrome.storage.local.set({
+      [STORAGE_KEY_RESULT]: { status: 'loading', text: trimmed, requestId, inputType: 'url', savedAt: new Date().toISOString() }
+    });
+
+    try {
+      const responseLanguage = uiLang || 'en';
+      const result = await verifyUrl(trimmed, responseLanguage, token);
+
+      if (activeRequestIdRef.current !== requestId) return;
+
+      if (result && result.success === false) {
+        chrome.storage.local.set({
+          [STORAGE_KEY_RESULT]: {
+            status: 'error',
+            errorType: result.errorType || 'default',
+            statusCode: result.statusCode || 500,
+            message: result.message || 'Failed to analyze URL content.',
+            devDetails: result.devDetails || '',
+            requestId,
+            inputType: 'url',
+            text: trimmed,
+            savedAt: new Date().toISOString()
+          }
+        });
+        setErrorData({
+          errorType: result.errorType || 'default',
+          statusCode: result.statusCode || 500,
+          message: result.message || 'Failed to analyze URL content.',
+          devDetails: result.devDetails || ''
+        });
+        setView('error');
+        return;
+      }
+
+      chrome.storage.local.set({
+        [STORAGE_KEY_RESULT]: { status: 'done', result, requestId, text: trimmed, savedAt: new Date().toISOString() }
+      });
+
+      setResult(result);
+      setView('result');
+      saveToHistory(result);
+      setUrlInput('');
+    } catch (err) {
+      if (activeRequestIdRef.current !== requestId) return;
+      const message = err?.message || 'Failed to analyze URL content.';
+      chrome.storage.local.set({
+        [STORAGE_KEY_RESULT]: {
+          status: 'error',
+          errorType: 'default',
+          statusCode: 500,
+          message,
+          devDetails: err.stack || err.message,
+          requestId,
+          inputType: 'url',
+          text: trimmed,
+          savedAt: new Date().toISOString()
+        }
+      });
+      setErrorData({
+        errorType: 'default',
+        statusCode: 500,
+        message,
+        devDetails: err.stack || err.message
+      });
+      setView('error');
+    }
+  };
+
+  // ── Image Analysis Handlers ──
+  const handleImageFileSelect = (file) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert('Only JPG, PNG, and WEBP images are supported.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image file must be under 10MB.');
+      return;
+    }
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setImagePreview(e.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleScanImage = async () => {
+    if (!imageFile) return;
+
+    const requestId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+    activeRequestIdRef.current = requestId;
+
+    const label = imageFile.name || 'Image analysis';
+    setLastScanText(label);
+    setLoadingText(label);
+    setLastInputType('image');
+    setMainClaim(null);
+    setView('loading');
+
+    chrome.storage.local.set({
+      [STORAGE_KEY_RESULT]: { status: 'loading', text: label, requestId, inputType: 'image', savedAt: new Date().toISOString() }
+    });
+
+    try {
+      const responseLanguage = uiLang || 'en';
+      const result = await verifyImage(imageFile, responseLanguage, token);
+
+      if (activeRequestIdRef.current !== requestId) return;
+
+      if (result && result.success === false) {
+        chrome.storage.local.set({
+          [STORAGE_KEY_RESULT]: {
+            status: 'error',
+            errorType: result.errorType || 'default',
+            statusCode: result.statusCode || 500,
+            message: result.message || 'Image analysis failed.',
+            devDetails: result.devDetails || '',
+            requestId,
+            inputType: 'image',
+            text: label,
+            savedAt: new Date().toISOString()
+          }
+        });
+        setErrorData({
+          errorType: result.errorType || 'default',
+          statusCode: result.statusCode || 500,
+          message: result.message || 'Image analysis failed.',
+          devDetails: result.devDetails || ''
+        });
+        setView('error');
+        return;
+      }
+
+      chrome.storage.local.set({
+        [STORAGE_KEY_RESULT]: { status: 'done', result, requestId, text: label, savedAt: new Date().toISOString() }
+      });
+
+      setResult(result);
+      setView('result');
+      saveToHistory(result);
+      setImageFile(null);
+      setImagePreview(null);
+    } catch (err) {
+      if (activeRequestIdRef.current !== requestId) return;
+      const message = err?.message || 'Image analysis failed.';
+      chrome.storage.local.set({
+        [STORAGE_KEY_RESULT]: {
+          status: 'error',
+          errorType: 'default',
+          statusCode: 500,
+          message,
+          devDetails: err.stack || err.message,
+          requestId,
+          inputType: 'image',
+          text: label,
+          savedAt: new Date().toISOString()
+        }
+      });
+      setErrorData({
+        errorType: 'default',
+        statusCode: 500,
+        message,
+        devDetails: err.stack || err.message
+      });
+      setView('error');
+    }
+  };
+
+  // ── Microphone Speech Recognition Handler for Text Input ──
+  const handleToggleMic = async () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Microphone speech recognition is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+
+    if (isRecording) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsRecording(false);
+      return;
+    }
+
+    // Check / request mic access via getUserMedia
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    } catch (permErr) {
+      console.warn('[Popup] Mic permission prompt required in full tab:', permErr);
+      if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+        chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') });
+      } else {
+        alert('Please allow microphone access in Chrome settings (chrome://settings/content/microphone).');
+      }
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = uiLang === 'hi' ? 'hi-IN' : 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      const previous = pasteText.trimEnd();
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+      };
+
+      recognition.onresult = (event) => {
+        let session = '';
+        for (let i = 0; i < event.results.length; i++) {
+          session += event.results[i][0].transcript;
+        }
+        const sep = previous && session ? ' ' : '';
+        setPasteText(`${previous}${sep}${session}`.slice(0, 10000));
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('[Popup] SpeechRecognition error:', event.error);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+            chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') });
+          } else {
+            alert('Please allow microphone access in Chrome settings (chrome://settings/content/microphone).');
+          }
+        }
+        setIsRecording(false);
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error('[Popup] SpeechRecognition startup failed:', err);
+      setIsRecording(false);
+    }
   };
 
   // ── Sync history setting ──────────────────────────────────────────────────
@@ -1935,31 +2237,182 @@ export default function Popup({ uiLang, onToggleLang, token, user, onLogout, onS
         </div>
       )}
 
-      {/* Primary Actions / Direct Input */}
-      <div className="px-5 flex flex-col gap-1.5">
-        <SectionTitle icon={<FileText size={12} />} title={t('extension.verifySelectedText', 'Paste Text to Verify')} />
-        
-        <div className="flex flex-col gap-1.5 rounded-xl bg-[#E4DFB5] p-2.5 border border-[#C3CC9B]">
-          <textarea
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            placeholder={t('extension.verifyHint', 'Paste any news claim or text here to verify...')}
-            className="w-full text-xs bg-transparent border-none outline-none resize-none text-[#232B1B] placeholder-[#5C6650] leading-relaxed"
-            style={{ minHeight: '60px', maxHeight: '88px', overflowY: 'auto' }}
-          />
-          <div className="flex justify-between items-center pt-1.5 border-t border-[#C3CC9B]/50">
-            <span className="text-[9px] text-[#5C6650] font-semibold">
-              {pasteText.length}/10000 chars
-            </span>
-            <button 
-              onClick={handleDirectScan}
-              disabled={!pasteText.trim()}
-              className="btn-primary px-4 py-1.5 text-xs font-black rounded-lg disabled:opacity-50 text-[#FBE8CE]"
-            >
-              Scan Now
-            </button>
-          </div>
+      {/* ── Multi-Mode Input Selector (3 Tabs) ── */}
+      <div className="px-5 mb-2">
+        <div className="grid grid-cols-3 p-1 rounded-xl bg-[#E4DFB5] border border-[#C3CC9B] gap-1">
+          <button
+            type="button"
+            onClick={() => setInputTab('text')}
+            className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-black transition-all cursor-pointer border-none outline-none ${
+              inputTab === 'text'
+                ? 'bg-[#232B1B] text-[#FBE8CE] shadow-sm'
+                : 'bg-transparent text-[#5C6650] hover:text-[#232B1B]'
+            }`}
+          >
+            <FileText size={12} />
+            <span>{t('analyze.tabs.text', 'Text Analysis')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setInputTab('url')}
+            className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-black transition-all cursor-pointer border-none outline-none ${
+              inputTab === 'url'
+                ? 'bg-[#232B1B] text-[#FBE8CE] shadow-sm'
+                : 'bg-transparent text-[#5C6650] hover:text-[#232B1B]'
+            }`}
+          >
+            <LinkIcon size={12} />
+            <span>{t('analyze.tabs.url', 'URL Analysis')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setInputTab('image')}
+            className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-black transition-all cursor-pointer border-none outline-none ${
+              inputTab === 'image'
+                ? 'bg-[#232B1B] text-[#FBE8CE] shadow-sm'
+                : 'bg-transparent text-[#5C6650] hover:text-[#232B1B]'
+            }`}
+          >
+            <ImageIcon size={12} />
+            <span>{t('analyze.tabs.image', 'Image Analysis')}</span>
+          </button>
         </div>
+      </div>
+
+      {/* ── Multi-Mode Active Input Panel ── */}
+      <div className="px-5 flex flex-col gap-1.5">
+        {inputTab === 'text' && (
+          <div className="flex flex-col gap-1.5 rounded-xl bg-[#E4DFB5] p-2.5 border border-[#C3CC9B] shadow-sm">
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder={isRecording ? 'Listening... Speak your claim naturally' : t('extension.verifyHint', 'Paste any news claim or text here to verify...')}
+              className="w-full text-xs bg-transparent border-none outline-none resize-none text-[#232B1B] placeholder-[#5C6650] leading-relaxed"
+              style={{ minHeight: '58px', maxHeight: '80px', overflowY: 'auto' }}
+            />
+            <div className="flex justify-between items-center pt-1.5 border-t border-[#C3CC9B]/50">
+              <span className="text-[9px] text-[#5C6650] font-semibold">
+                {pasteText.length}/10000 chars
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleToggleMic}
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer border transition-all ${
+                    isRecording
+                      ? 'bg-red-600 border-red-700 text-white animate-pulse shadow-sm shadow-red-300'
+                      : 'bg-[#FBE8CE] hover:bg-[#F6F4EB] border-[#C3CC9B] text-[#5C6650] hover:text-[#232B1B] hover:border-[#768E56]'
+                  }`}
+                  title={isRecording ? 'Recording... Click to stop' : 'Click to speak claim'}
+                  aria-label="Microphone Voice Input"
+                >
+                  {isRecording ? <MicOff size={13} /> : <Mic size={13} />}
+                </button>
+                <button 
+                  onClick={handleDirectScan}
+                  disabled={!pasteText.trim()}
+                  className="btn-primary px-3.5 py-1.5 text-xs font-black rounded-lg disabled:opacity-50 text-[#FBE8CE] cursor-pointer"
+                >
+                  Scan Text
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {inputTab === 'url' && (
+          <div className="flex flex-col gap-2 rounded-xl bg-[#E4DFB5] p-2.5 border border-[#C3CC9B] shadow-sm">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                placeholder="https://example.com/news-article"
+                className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-[#FBE8CE] border border-[#C3CC9B] outline-none text-[#232B1B] placeholder-[#5C6650]"
+              />
+              <button
+                type="button"
+                onClick={handleAutoFillActiveTab}
+                disabled={fetchingTabUrl}
+                className="px-2.5 py-1.5 rounded-lg bg-[#232B1B] hover:bg-[#343F29] text-[#FBE8CE] text-[9px] font-black shrink-0 cursor-pointer border-none"
+                title="Auto-fill active tab URL"
+              >
+                {fetchingTabUrl ? '...' : 'Current Tab'}
+              </button>
+            </div>
+            <div className="flex justify-between items-center pt-1 border-t border-[#C3CC9B]/50">
+              <span className="text-[9px] text-[#5C6650] font-semibold">
+                Scrapes & fact-checks article URL
+              </span>
+              <button
+                onClick={handleDirectScanUrl}
+                disabled={!urlInput.trim()}
+                className="btn-primary px-3.5 py-1.5 text-xs font-black rounded-lg disabled:opacity-50 text-[#FBE8CE] cursor-pointer"
+              >
+                Verify URL
+              </button>
+            </div>
+          </div>
+        )}
+
+        {inputTab === 'image' && (
+          <div className="flex flex-col gap-2 rounded-xl bg-[#E4DFB5] p-2.5 border border-[#C3CC9B] shadow-sm">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => handleImageFileSelect(e.target.files?.[0])}
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+            />
+            {!imagePreview ? (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer.files?.[0]) handleImageFileSelect(e.dataTransfer.files[0]);
+                }}
+                className="border border-dashed border-[#C3CC9B] hover:border-[#768E56] rounded-xl p-2.5 flex flex-col items-center justify-center gap-0.5 cursor-pointer bg-[#FBE8CE]/50 transition-colors"
+              >
+                <Upload size={15} className="text-[#768E56]" />
+                <p className="text-[10px] font-black text-[#232B1B]">Upload or Drop Image</p>
+                <p className="text-[8px] text-[#5C6650]">JPG, PNG, WEBP (Max 10MB)</p>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2 bg-[#FBE8CE] p-1.5 rounded-xl border border-[#C3CC9B]">
+                <div className="flex items-center gap-2 min-w-0">
+                  <img src={imagePreview} alt="Preview" className="w-9 h-9 object-cover rounded-lg border border-[#C3CC9B] shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-[#232B1B] truncate">{imageFile?.name}</p>
+                    <p className="text-[9px] text-[#5C6650]">{Math.round((imageFile?.size || 0) / 1024)} KB</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setImageFile(null); setImagePreview(null); }}
+                  className="p-1 rounded-full text-red-600 hover:bg-red-100 transition-colors bg-transparent border-none cursor-pointer"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center pt-1 border-t border-[#C3CC9B]/50">
+              <span className="text-[9px] text-[#5C6650] font-semibold">
+                OCR & Visual Verification
+              </span>
+              <button
+                onClick={handleScanImage}
+                disabled={!imageFile}
+                className="btn-primary px-3.5 py-1.5 text-xs font-black rounded-lg disabled:opacity-50 text-[#FBE8CE] cursor-pointer"
+              >
+                Scan Image
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="divider mx-5 my-2" />

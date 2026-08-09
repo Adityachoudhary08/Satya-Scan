@@ -6,6 +6,7 @@ const path = require('path');
 const connectDB = require('./config/db');
 const logger = require('./config/logger');
 const { PORT } = require('./config/env');
+const { validateGeminiConfiguration } = require('./services/geminiService');
 const errorHandler = require('./middleware/errorHandler');
 const { generalLimiter } = require('./middleware/rateLimiter');
 
@@ -23,6 +24,7 @@ app.set("trust proxy", 1);
 
 // Connect to MongoDB
 connectDB();
+validateGeminiConfiguration();
 
 // Middleware
 app.use(helmet());

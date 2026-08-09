@@ -5,10 +5,12 @@ const { parseGeminiJSON, resolveLanguage } = require('../utils/helpers');
 
 
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+// Use stable model identifiers.  Keep both configurable for deployments where
+// a model is temporarily unavailable or a key has restricted model access.
+const PRIMARY_MODEL = process.env.GEMINI_PRIMARY_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || 'missing-key');
-
-console.log("Gemini model:", GEMINI_MODEL);
+logger.info('Gemini model configuration loaded', { primaryModel: PRIMARY_MODEL, fallbackModel: FALLBACK_MODEL });
 
 class GeminiProviderError extends Error {
   constructor(message, cause) {
@@ -72,6 +74,58 @@ async function withRetry(operation, label, maxAttempts = 2) {
   throw new GeminiProviderError(`${label} unavailable`, lastError);
 }
 
+function getGeminiConfigurationIssue() {
+  if (!GEMINI_API_KEY || !GEMINI_API_KEY.trim()) return 'GEMINI_API_KEY is missing.';
+  const key = GEMINI_API_KEY.trim();
+  // Google AI Studio supports legacy keys (AIza...) and newer keys (AQ....)
+  if (!/^(AIza[\w-]{20,}|AQ\.[\w.-]{20,})$/.test(key) && key.length < 20) {
+    return 'GEMINI_API_KEY format is invalid or too short.';
+  }
+  return null;
+}
+
+async function validateGeminiConfiguration() {
+  const issue = getGeminiConfigurationIssue();
+  if (issue) {
+    logger.error('[GEMINI] startup validation failed', { issue });
+    return { valid: false, issue };
+  }
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(GEMINI_API_KEY)}`);
+    if (!response.ok) {
+      const detail = await response.text();
+      const issue = response.status === 401 ? 'Gemini rejected the credential. Use an AI Studio API key on Render, not an OAuth access token.' : `Gemini model discovery failed (${response.status}).`;
+      logger.error('[GEMINI] startup validation failed', { issue, status: response.status, detail: detail.slice(0, 300) });
+      return { valid: false, issue };
+    }
+    const payload = await response.json();
+    const available = new Set((payload.models || []).map(item => String(item.name || '').replace(/^models\//, '')));
+    const primaryAvailable = available.has(PRIMARY_MODEL);
+    const fallbackAvailable = available.has(FALLBACK_MODEL);
+    logger.info('[GEMINI] startup model availability checked', { primaryModel: PRIMARY_MODEL, primaryAvailable, fallbackModel: FALLBACK_MODEL, fallbackAvailable });
+    return { valid: primaryAvailable || fallbackAvailable, primaryAvailable, fallbackAvailable };
+  } catch (error) {
+    logger.warn('[GEMINI] startup model discovery unavailable; runtime fallback remains enabled', { message: error.message });
+    return { valid: false, issue: 'Could not reach Gemini model discovery endpoint.' };
+  }
+}
+
+async function generateWithModelFallback(parts, label, generationConfig) {
+  const models = [...new Set([PRIMARY_MODEL, FALLBACK_MODEL])];
+  let lastError;
+  for (const modelName of models) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName, generationConfig });
+      const result = await withRetry(() => model.generateContent(parts), `${label} (${modelName})`);
+      return { result, modelName };
+    } catch (error) {
+      lastError = error;
+      logger.warn('Gemini model failed; trying fallback when available', { label, modelName, reason: getErrorMessage(error) });
+    }
+  }
+  throw new GeminiProviderError(`${label} unavailable across configured models`, lastError);
+}
+
 function hasDevanagari(str) {
   return /[\u0900-\u097F]/.test(str);
 }
@@ -109,21 +163,15 @@ async function analyzeText(prompt, selectedLanguage) {
   logger.info('Sending text analysis request to Gemini');
   logger.debug('Prompt length:', prompt.length);
 
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    generationConfig: {
+  const generationConfig = {
       temperature: 0.1,
       topP: 0.8,
       maxOutputTokens: 8192,
       responseMimeType: 'application/json',
-    },
-  });
+  };
 
   try {
-    const result = await withRetry(
-      () => model.generateContent(prompt),
-      'Gemini text analysis'
-    );
+    const { result } = await generateWithModelFallback(prompt, 'Gemini text analysis', generationConfig);
     const response = result.response;
     const text = response.text();
 
@@ -163,15 +211,12 @@ async function analyzeImage(imageBuffer, mimeType, prompt, selectedLanguage) {
   });
   logger.info('Sending image analysis request to Gemini Vision');
 
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    generationConfig: {
+  const generationConfig = {
       temperature: 0.2,
       topP: 0.8,
       maxOutputTokens: 4096,
       responseMimeType: 'application/json',
-    },
-  });
+  };
 
   try {
     const imagePart = {
@@ -181,10 +226,7 @@ async function analyzeImage(imageBuffer, mimeType, prompt, selectedLanguage) {
       },
     };
 
-    const result = await withRetry(
-      () => model.generateContent([prompt, imagePart]),
-      'Gemini image analysis'
-    );
+    const { result, modelName } = await generateWithModelFallback([prompt, imagePart], 'Gemini image analysis', generationConfig);
     const response = result.response;
     const text = response.text();
 
@@ -202,7 +244,7 @@ async function analyzeImage(imageBuffer, mimeType, prompt, selectedLanguage) {
       logger.warn('Gemini returned non-Hindi output for Hindi request');
     }
 
-    return parsed;
+    return { ...parsed, _model: modelName };
   } catch (error) {
     console.error("========== GEMINI IMAGE ANALYSIS ERROR ==========");
     console.error(error);
@@ -217,20 +259,14 @@ async function analyzeImage(imageBuffer, mimeType, prompt, selectedLanguage) {
 async function generateSearchQueries(prompt) {
   logger.info('Generating search queries via Gemini');
 
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    generationConfig: {
+  const generationConfig = {
       temperature: 0.7,
       maxOutputTokens: 512,
       responseMimeType: 'application/json',
-    },
-  });
+  };
 
   try {
-    const result = await withRetry(
-      () => model.generateContent(prompt),
-      'Gemini query generation'
-    );
+    const { result } = await generateWithModelFallback(prompt, 'Gemini query generation', generationConfig);
     const text = result.response.text();
     const queries = parseGeminiJSON(text);
 
@@ -294,4 +330,7 @@ module.exports = {
   generateSearchQueries,
   GeminiProviderError,
   formatGeminiError,
+  validateGeminiConfiguration,
+  PRIMARY_MODEL,
+  FALLBACK_MODEL,
 };

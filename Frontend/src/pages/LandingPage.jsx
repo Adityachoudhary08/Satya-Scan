@@ -200,14 +200,6 @@ export default function LandingPage() {
               </div>
             </form>
 
-            {/* Deepfake detection link */}
-            <button
-              onClick={() => navigate('/deepfake')}
-              className="text-[#5C6650] hover:text-[#232B1B] transition-colors font-semibold text-sm bg-transparent border-none outline-none cursor-pointer"
-            >
-              Deepfake
-            </button>
-
             {/* UI Language toggle */}
             <button
               onClick={() => {
@@ -269,12 +261,6 @@ export default function LandingPage() {
               className="block text-left w-full text-[#5C6650] hover:text-[#232B1B] py-1.5 transition-colors no-underline font-semibold bg-transparent border-none outline-none cursor-pointer"
             >
               {t('landing.hero.cta')}
-            </button>
-            <button
-              onClick={() => { navigate('/deepfake'); setMenuOpen(false); }}
-              className="block text-left w-full text-[#5C6650] hover:text-[#232B1B] py-1.5 transition-colors no-underline font-semibold bg-transparent border-none outline-none cursor-pointer"
-            >
-              Deepfake Detection
             </button>
             <button
               onClick={() => {

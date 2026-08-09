@@ -36,7 +36,7 @@ const checkSchema = new mongoose.Schema(
     },
     inputType: {
       type: String,
-      enum: ['text', 'url', 'image', 'page'],
+      enum: ['text', 'url', 'image', 'page', 'video'],
       required: true,
     },
     imageHash: { type: String, index: true },
@@ -72,6 +72,9 @@ const checkSchema = new mongoose.Schema(
       status: String,
       confidence: { type: Number, min: 0, max: 100 },
       evidence: [String],
+      analysisMode: String,
+      model: String,
+      fallbackReason: String,
     },
     ocrClaimVerification: {
       hasText: { type: Boolean, default: false },
@@ -80,6 +83,8 @@ const checkSchema = new mongoose.Schema(
       confidence: { type: Number, min: 0, max: 100 },
       reason: String,
       sources: [sourceSchema],
+      ocrSource: String,
+      ocrConfidence: { type: Number, min: 0, max: 100 },
     },
     imageVerdict: {
       type: String,
@@ -91,6 +96,17 @@ const checkSchema = new mongoose.Schema(
     findings: [String],
     imageSummary: String,
     imageConfidence: { type: Number, min: 0, max: 100 },
+
+    // ─── Video verification fields ───────────────────────────
+    totalFramesAnalyzed: Number,
+    deepfakeFrames: Number,
+    deepfakePercentage: Number,
+    detectionReason: String,
+    manipulationTechnique: String,
+    suspiciousAreas: [String],
+    authenticAreas: [String],
+    confidenceExplanation: String,
+    analyzedBy: [String],
 
     // ─── Common fields ───────────────────────────────────────
     language: String,

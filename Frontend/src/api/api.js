@@ -30,6 +30,15 @@ export const analyzeImage = (imageFile, selectedLanguage = 'auto') => {
   });
 };
 
+export const analyzeVideo = (videoFile) => {
+  const form = new FormData();
+  form.append('video', videoFile);
+  return client.post('/deepfake/video', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000,
+  });
+};
+
 // ─── History ──────────────────────────────────────────────────────────────────
 /** GET /api/history?page=N — requires auth */
 export const getHistory = (page = 1) =>

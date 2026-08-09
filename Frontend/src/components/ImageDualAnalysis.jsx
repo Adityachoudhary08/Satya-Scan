@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Eye, FileText, CircleCheckBig, CircleX, TriangleAlert,
-  ShieldQuestion, BadgeCheck, ExternalLink, Search, ShieldCheck
+  ShieldQuestion, BadgeCheck, ExternalLink, Search, ShieldCheck, ChevronDown
 } from 'lucide-react';
 
 const VISUAL_CONFIG = {
@@ -12,6 +13,12 @@ const VISUAL_CONFIG = {
     badgeBg: 'rgba(46, 125, 50, 0.15)',
     Icon: CircleCheckBig,
     label: 'Real',
+  },
+  'Likely Real': {
+    color: '#5F7A38', bg: 'rgba(95, 122, 56, 0.10)', border: 'rgba(95, 122, 56, 0.25)', badgeBg: 'rgba(95, 122, 56, 0.15)', Icon: BadgeCheck, label: 'Likely Real',
+  },
+  'Analysis Limited': {
+    color: '#5C6650', bg: 'rgba(78, 93, 76, 0.10)', border: 'rgba(78, 93, 76, 0.25)', badgeBg: 'rgba(78, 93, 76, 0.15)', Icon: ShieldQuestion, label: 'Analysis Limited',
   },
   'AI Generated': {
     color: '#C62828',
@@ -109,11 +116,13 @@ const CLAIM_CONFIG = {
 
 function normalizeVisualStatus(status) {
   const s = String(status || '').toUpperCase().trim().replace(/[\s-]+/g, '_');
-  if (s === 'REAL' || s === 'AUTHENTIC' || s === 'LIKELY_AUTHENTIC') return 'Real';
+  if (s === 'REAL' || s === 'AUTHENTIC') return 'Real';
+  if (s === 'LIKELY_AUTHENTIC' || s === 'LIKELY_REAL') return 'Likely Real';
   if (s === 'AI_GENERATED' || s === 'LIKELY_AI_GENERATED' || s === 'SYNTHETIC') return 'AI Generated';
   if (s === 'MANIPULATED' || s === 'EDITED' || s === 'ALTERED') return 'Manipulated';
   if (s === 'DEEPFAKE' || s === 'FACE_SWAP') return 'Deepfake';
-  return 'Uncertain';
+  if (s === 'ANALYSIS_LIMITED' || s === 'LIMITED_ANALYSIS') return 'Analysis Limited';
+  return 'Analysis Limited';
 }
 
 function normalizeClaimVerdict(verdict) {
@@ -138,6 +147,7 @@ function getDomain(url) {
  * Analyzes ONLY image pixels. Ignores all text.
  */
 function ImageAuthenticityCard({ visual }) {
+  const [findingsOpen, setFindingsOpen] = useState(true);
   const rawStatus = visual?.status || 'Uncertain';
   const status = normalizeVisualStatus(rawStatus);
   const cfg = VISUAL_CONFIG[status] || VISUAL_CONFIG.Uncertain;
@@ -148,6 +158,8 @@ function ImageAuthenticityCard({ visual }) {
 
   const rawEvidence = Array.isArray(visual?.evidence) ? visual.evidence : [];
   const evidence = rawEvidence.filter(Boolean);
+  const sourceLabel = visual?.analysisMode === 'gemini_vision' ? 'Gemini Vision'
+    : visual?.analysisMode === 'local_fallback' ? 'Local Fallback' : 'Limited Analysis';
 
   return (
     <motion.div
@@ -184,7 +196,7 @@ function ImageAuthenticityCard({ visual }) {
             className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider shrink-0"
             style={{ background: cfg.badgeBg, color: cfg.color, border: `1px solid ${cfg.border}` }}
           >
-            Pixels Only
+            {sourceLabel}
           </span>
         </div>
 
@@ -232,20 +244,23 @@ function ImageAuthenticityCard({ visual }) {
 
         {/* Dedicated "WHY THIS VERDICT?" Section with numbered findings */}
         <div className="mt-5 pt-4 border-t border-[#C3CC9B]">
-          <div className="flex items-center justify-between gap-2 mb-3">
+          <button type="button" onClick={() => setFindingsOpen((open) => !open)} className="w-full flex items-center justify-between gap-2 mb-3 text-left">
             <h3 className="text-xs font-black text-[#232B1B] uppercase tracking-wider flex items-center gap-2">
               <span className="w-1.5 h-3.5 rounded-full" style={{ background: cfg.color }} />
-              WHY THIS VERDICT?
+              {status === 'Real' || status === 'Likely Real' ? 'AUTHENTICITY INDICATORS' : 'WHY THIS VERDICT?'}
             </h3>
+            <span className="flex items-center gap-2">
             <span
               className="text-[10px] font-bold px-2 py-0.5 rounded-md"
               style={{ background: cfg.badgeBg, color: cfg.color, border: `1px solid ${cfg.border}` }}
             >
               {evidence.length} Forensic {evidence.length === 1 ? 'Finding' : 'Findings'}
             </span>
-          </div>
+            <ChevronDown size={15} className={`transition-transform ${findingsOpen ? 'rotate-180' : ''}`} style={{ color: cfg.color }} />
+            </span>
+          </button>
 
-          {evidence.length > 0 ? (
+          {findingsOpen && evidence.length > 0 ? (
             <ol className="space-y-2.5">
               {evidence.map((item, idx) => (
                 <motion.li
@@ -265,11 +280,11 @@ function ImageAuthenticityCard({ visual }) {
                 </motion.li>
               ))}
             </ol>
-          ) : (
+          ) : findingsOpen ? (
             <div className="p-3.5 rounded-xl bg-[#F6F4EB] border border-[#C3CC9B]/80 text-xs text-[#5C6650] italic">
               Standard optical sensor characteristics detected without generative anomalies.
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </motion.div>
@@ -507,7 +522,7 @@ export default function ImageDualAnalysis({ result }) {
         <ShieldCheck size={15} className="text-[#768E56] shrink-0" />
         <p className="leading-relaxed">
           <strong className="text-[#232B1B]">Independent Domains:</strong>{' '}
-          Image authenticity evaluates pixel forensics only. Text claim verification evaluates extracted words against independent fact sources.
+          {result?.crossAnalysisExplanation || 'Image authenticity evaluates pixel forensics only. Text claim verification evaluates extracted words against independent fact sources.'}
         </p>
       </motion.div>
     </div>

@@ -4,6 +4,9 @@ const path = require('path');
 const fs = require('fs');
 const { getFullDeepfakeAnalysis } = require('../utils/deepfake');
 const { analyzeVideo } = require('../utils/videoDeepfake');
+const { optionalAuth } = require('../middleware/auth');
+const Check = require('../models/Check');
+const logger = require('../config/logger');
 
 const router = express.Router();
 
@@ -46,11 +49,11 @@ const videoUpload = multer({
   storage: makeStorage(),
   limits: { fileSize: VIDEO_MAX_SIZE },
   fileFilter: (req, file, cb) => {
-    const allowed = ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/webm'];
-    if (allowed.includes(file.mimetype)) {
+    const allowed = ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/webm', 'video/x-msvideo', 'video/x-matroska'];
+    if (allowed.includes(file.mimetype) || file.originalname.match(/\.(mp4|webm|mov|avi|mkv)$/i)) {
       cb(null, true);
     } else {
-      cb(Object.assign(new Error('Only video files accepted'), { code: 'INVALID_VIDEO_TYPE' }), false);
+      cb(Object.assign(new Error('Only video files accepted (MP4, WebM, MOV, AVI, MKV)'), { code: 'INVALID_VIDEO_TYPE' }), false);
     }
   },
 });
@@ -80,7 +83,7 @@ function withTimeout(promise, ms) {
 // POST /api/deepfake/image
 // Accepts single image upload (field name: "image")
 // ════════════════════════════════════════════════════════════════════════════
-router.post('/image', imageUpload.single('image'), async (req, res, next) => {
+router.post('/image', optionalAuth, imageUpload.single('image'), async (req, res, next) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image file uploaded' });
   }
@@ -88,7 +91,31 @@ router.post('/image', imageUpload.single('image'), async (req, res, next) => {
   const filePath = req.file.path;
   try {
     const result = await getFullDeepfakeAnalysis(filePath);
-    return res.json(result);
+    let checkId = null;
+    try {
+      const check = await Check.create({
+        userId: req.userId || null,
+        inputType: 'image',
+        originalText: req.file.originalname || 'Image analysis',
+        trustScore: result.confidence ? (result.isDeepfake ? 100 - result.confidence : result.confidence) : 50,
+        imageVerdict: result.verdict || (result.isDeepfake ? 'AI_GENERATED' : 'AUTHENTIC'),
+        imageConfidence: result.confidence || 0,
+        aiProbability: result.aiProbability,
+        deepfakeProbability: result.deepfakeProbability,
+        manipulationProbability: result.manipulationProbability,
+        findings: result.findings || [],
+        imageSummary: result.summary || result.detectionReason,
+        visualAuthenticity: {
+          status: result.verdict || (result.isDeepfake ? 'AI_GENERATED' : 'AUTHENTIC'),
+          confidence: result.confidence || 0,
+          evidence: result.findings || [],
+        },
+      });
+      checkId = check._id;
+    } catch (saveErr) {
+      logger.error('Failed to save deepfake image to history', { error: saveErr.message });
+    }
+    return res.json({ ...result, checkId });
   } catch (err) {
     next(err);
   } finally {
@@ -102,6 +129,7 @@ router.post('/image', imageUpload.single('image'), async (req, res, next) => {
 // ════════════════════════════════════════════════════════════════════════════
 router.post(
   '/video',
+  optionalAuth,
   (req, res, next) => {
     // Run multer with custom error handling before the main handler
     videoUpload.single('video')(req, res, (err) => {
@@ -111,7 +139,7 @@ router.post(
         return res.status(400).json({ error: 'Video must be under 50MB' });
       }
       if (err.code === 'INVALID_VIDEO_TYPE') {
-        return res.status(400).json({ error: 'Only video files accepted' });
+        return res.status(400).json({ error: 'Only video files accepted (MP4, WebM, MOV, AVI, MKV)' });
       }
       return res.status(400).json({ error: err.message });
     });
@@ -126,9 +154,40 @@ router.post(
       // 120-second timeout for the entire analysis pipeline
       const result = await withTimeout(analyzeVideo(filePath), 120_000);
 
+      // Save video check to history
+      let checkId = null;
+      try {
+        const isManipulated = result.isDeepfake || result.verdict === 'LIKELY DEEPFAKE';
+        const check = await Check.create({
+          userId: req.userId || null,
+          inputType: 'video',
+          originalText: req.file.originalname || 'Video analysis',
+          trustScore: result.confidence ? (isManipulated ? Math.max(5, 100 - result.confidence) : result.confidence) : 50,
+          imageVerdict: result.verdict || (isManipulated ? 'LIKELY DEEPFAKE' : 'LIKELY REAL'),
+          imageConfidence: result.confidence || 0,
+          totalFramesAnalyzed: result.totalFramesAnalyzed || 0,
+          deepfakeFrames: result.deepfakeFrames || 0,
+          deepfakePercentage: result.deepfakePercentage || 0,
+          detectionReason: result.detectionReason || '',
+          manipulationTechnique: result.manipulationTechnique || '',
+          suspiciousAreas: result.suspiciousAreas || [],
+          authenticAreas: result.authenticAreas || [],
+          confidenceExplanation: result.confidenceExplanation || '',
+          recommendation: result.recommendation || '',
+          analyzedBy: result.analyzedBy || [],
+          findings: result.suspiciousAreas || [],
+          verifiedFacts: result.authenticAreas || [],
+        });
+        checkId = check._id;
+        logger.info('Video check saved to history', { checkId, userId: req.userId || 'anonymous' });
+      } catch (saveErr) {
+        logger.error('Failed to save video check to history', { error: saveErr.message });
+      }
+
       // Attach sampling metadata and return
       return res.json({
         ...result,
+        checkId,
         samplingInfo: '1 frame extracted every 2 seconds, max 60 seconds analyzed',
       });
     } catch (err) {

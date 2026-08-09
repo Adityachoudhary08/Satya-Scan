@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { analyzeText, analyzeUrl, analyzeImage } from '../api/api';
+import { analyzeText, analyzeUrl, analyzeImage, analyzeVideo } from '../api/api';
 import LoadingState from '../components/LoadingState';
 import LanguageSelector from '../components/LanguageSelector';
 import { useLanguage, useTranslation } from '../context/LanguageContext';
@@ -51,17 +51,21 @@ export default function AnalyzePage() {
     { key: 'text', icon: '📝', label: t('analyze.tabs.text') },
     { key: 'url', icon: '🔗', label: t('analyze.tabs.url') },
     { key: 'image', icon: '🖼️', label: t('analyze.tabs.image') },
-    { key: 'deepfake', icon: '🔬', label: 'Deepfake' },
+    { key: 'video', icon: '🎬', label: 'Video Analysis' },
   ];
 
   const [tab, setTab] = useState('text');
   const [textInput, setTextInput] = useState(location.state?.prefill || '');
   const [urlInput, setUrlInput] = useState('');
   const [imageFile, setImageFile] = useState(null);
+  const [videoFile, setVideoFile] = useState(null);
+  const [imageDragOver, setImageDragOver] = useState(false);
+  const [videoDragOver, setVideoDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isListening, setIsListening] = useState(false);
   const fileRef = useRef(null);
+  const videoRef = useRef(null);
   const recognitionRef = useRef(null);
   const progressStep = useFakeProgress(loading);
 
@@ -120,21 +124,28 @@ export default function AnalyzePage() {
     if (tab === 'text' && !textInput.trim()) return setError(t('analyze.errors.noText'));
     if (tab === 'url' && !urlInput.trim()) return setError(t('analyze.errors.noUrl'));
     if (tab === 'image' && !imageFile) return setError(t('analyze.errors.noImage'));
+    if (tab === 'video' && !videoFile) return setError('Please select a video file to analyze.');
     setLoading(true);
     try {
+      if (tab === 'video') {
+        const res = await analyzeVideo(videoFile);
+        navigate('/video-analysis', { state: { preloadedResult: res.data, videoFile } });
+        return;
+      }
+
       let res;
       if (tab === 'text') res = await analyzeText(textInput, selectedLanguage);
       else if (tab === 'url') res = await analyzeUrl(urlInput, selectedLanguage);
-      else res = await analyzeImage(imageFile, selectedLanguage);
+      else if (tab === 'image') res = await analyzeImage(imageFile, selectedLanguage);
 
       // Update detected language in context
-      if (res.data?.detectedLanguage) {
+      if (res?.data?.detectedLanguage) {
         setDetectedLanguage(res.data.detectedLanguage);
       }
 
       navigate('/results', { state: { result: res.data } });
     } catch (err) {
-      setError(err.response?.data?.message || err.message || t('analyze.errors.failed'));
+      setError(err.response?.data?.message || err.response?.data?.error || err.message || t('analyze.errors.failed'));
     } finally {
       setLoading(false);
     }
@@ -157,9 +168,6 @@ export default function AnalyzePage() {
           </div>
           <div className="hidden md:flex items-center gap-5 text-sm text-[#5C6650]">
             <LanguageSelector />
-            <button onClick={() => navigate('/deepfake')} className="hover:text-[#232B1B] transition-colors bg-transparent border-none outline-none cursor-pointer font-semibold">
-              Deepfake
-            </button>
             <button onClick={() => navigate('/history')} className="hover:text-[#232B1B] transition-colors bg-transparent border-none outline-none cursor-pointer font-semibold">
               {t('nav.history')}
             </button>
@@ -193,15 +201,6 @@ export default function AnalyzePage() {
               <span className="text-xs font-bold text-[#5C6650] uppercase tracking-wider">{t('nav.language')}</span>
               <LanguageSelector />
             </div>
-             <button
-              onClick={() => {
-                navigate('/deepfake');
-                setMenuOpen(false);
-              }}
-              className="block text-[#5C6650] hover:text-[#232B1B] py-1.5 transition-colors no-underline font-semibold bg-transparent border-none outline-none text-left w-full cursor-pointer"
-            >
-              Deepfake
-            </button>
             <button
               onClick={() => {
                 navigate('/history');
@@ -289,10 +288,10 @@ export default function AnalyzePage() {
                           : 'bg-[#232B1B] text-[#FBE8CE] shadow-md shadow-[#232B1B]/10 hover:bg-[#343F29] hover:-translate-y-px'}`}
                       >
                         <span className={`flex h-5 w-5 items-center justify-center rounded-full ${isListening ? 'bg-white/20' : 'bg-[#FBE8CE]/15'}`}>
-                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                          <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z" />
-                          <path d="M18 11a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-4.09A6 6 0 0 0 18 11Z" />
-                        </svg>
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z" />
+                            <path d="M18 11a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-4.09A6 6 0 0 0 18 11Z" />
+                          </svg>
                         </span>
                         {isListening ? t('analyze.stopListening', 'Stop recording') : t('analyze.voiceInput', 'Voice fact-check')}
                       </button>
@@ -338,8 +337,18 @@ export default function AnalyzePage() {
                 <motion.div key="image" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }}>
                   <div
                     onClick={() => fileRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setImageDragOver(true); }}
+                    onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setImageDragOver(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setImageDragOver(false); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setImageDragOver(false);
+                      const f = e.dataTransfer?.files?.[0];
+                      if (f) setImageFile(f);
+                    }}
                     className={`w-full border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-200
-                      ${imageFile ? 'border-[#9AB17A] bg-[#FBE8CE]/50' : 'border-[#C3CC9B] hover:border-[#9AB17A] hover:bg-[#FBE8CE]/30'}`}
+                      ${imageDragOver ? 'border-[#232B1B] bg-[#FBE8CE] scale-[1.01]' : imageFile ? 'border-[#9AB17A] bg-[#FBE8CE]/50' : 'border-[#C3CC9B] hover:border-[#9AB17A] hover:bg-[#FBE8CE]/30'}`}
                   >
                     {imageFile ? (
                       <div className="text-[#232B1B] text-sm">
@@ -359,75 +368,62 @@ export default function AnalyzePage() {
                     onChange={(e) => setImageFile(e.target.files[0] || null)} />
                   {imageFile && (
                     <button type="button" onClick={() => setImageFile(null)}
-                      className="text-xs text-red-700 hover:underline mt-2 ml-1 font-medium">
+                      className="text-xs text-red-700 hover:underline mt-2 ml-1 font-medium bg-transparent border-none cursor-pointer">
                       {t('analyze.removeFile')}
                     </button>
                   )}
                 </motion.div>
               )}
 
-              {tab === 'deepfake' && (
-                <motion.div key="deepfake" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }}>
-                  <div className="space-y-4">
-                    <div className="text-center py-4">
-                      <div className="text-4xl mb-3">🔬</div>
-                      <h3 className="text-lg font-bold text-[#232B1B] mb-1">Deepfake Detection</h3>
-                      <p className="text-xs text-[#5C6650] max-w-md mx-auto">
-                        Detect AI-generated or manipulated images and videos using neural forensic analysis powered by Hugging Face & Gemini Vision.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {/* Image deepfake card */}
-                      <button
-                        type="button"
-                        onClick={() => navigate('/deepfake', { state: { tab: 'image' } })}
-                        className="group bg-[#FBE8CE] border-2 border-[#C3CC9B] rounded-xl p-6 text-left cursor-pointer transition-all duration-200 hover:border-[#232B1B] hover:shadow-lg hover:shadow-[#232B1B]/5 hover:-translate-y-0.5"
-                      >
-                        <div className="text-3xl mb-3">🖼️</div>
-                        <p className="text-sm font-bold text-[#232B1B] mb-1">Image Analysis</p>
-                        <p className="text-xs text-[#5C6650] leading-relaxed">
-                          Upload a photo to check for AI generation, face swaps, or digital manipulation.
+              {tab === 'video' && (
+                <motion.div key="video" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }}>
+                  <div
+                    onClick={() => videoRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setVideoDragOver(true); }}
+                    onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setVideoDragOver(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setVideoDragOver(false); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setVideoDragOver(false);
+                      const f = e.dataTransfer?.files?.[0];
+                      if (f) setVideoFile(f);
+                    }}
+                    className={`w-full border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-200
+                      ${videoDragOver ? 'border-[#232B1B] bg-[#FBE8CE] scale-[1.01]' : videoFile ? 'border-[#9AB17A] bg-[#FBE8CE]/50' : 'border-[#C3CC9B] hover:border-[#9AB17A] hover:bg-[#FBE8CE]/30'}`}
+                  >
+                    {videoFile ? (
+                      <div className="text-[#232B1B] text-sm">
+                        <div className="text-3xl mb-2">🎬</div>
+                        <p className="font-bold truncate max-w-sm mx-auto">{videoFile.name}</p>
+                        <p className="text-[#5C6650] text-xs mt-1 font-semibold">
+                          {(videoFile.size / (1024 * 1024)).toFixed(1)} MB · Ready for Frame Analysis
                         </p>
-                        <div className="flex items-center gap-1 mt-3 text-xs font-semibold text-[#5C6650] group-hover:text-[#232B1B] transition-colors">
-                          <span>Open detector</span>
-                          <span className="group-hover:translate-x-1 transition-transform">→</span>
-                        </div>
-                      </button>
-
-                      {/* Video deepfake card (Highlighted as unique & featured) */}
-                      <button
-                        type="button"
-                        onClick={() => navigate('/deepfake', { state: { tab: 'video' } })}
-                        className="group relative bg-gradient-to-b from-[#FBE8CE] to-[#F3DEC3] border-2 border-[#5C6650] rounded-xl p-6 text-left cursor-pointer transition-all duration-300 hover:border-[#232B1B] hover:shadow-xl hover:shadow-[#232B1B]/15 hover:-translate-y-1 overflow-hidden"
-                      >
-                        {/* Glow effect background pill */}
-                        <div className="absolute -top-12 -right-12 w-28 h-28 bg-[#9AB17A]/20 rounded-full blur-xl group-hover:bg-[#9AB17A]/35 transition-colors pointer-events-none" />
-
-                        {/* Featured Badge */}
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="text-3xl">🎬</div>
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#232B1B] text-[#FBE8CE] shadow-sm">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            Multi-Frame AI
-                          </span>
-                        </div>
-
-                        <p className="text-sm font-extrabold text-[#232B1B] mb-1">Video Analysis</p>
-                        <p className="text-xs text-[#5C6650] leading-relaxed">
-                          Extract & analyze 30+ frames for deepfake patterns. Max 50 MB, 60 seconds.
-                        </p>
-                        <div className="flex items-center gap-1.5 mt-3 text-xs font-bold text-[#232B1B] group-hover:translate-x-1 transition-transform">
-                          <span>Try Frame Scanner</span>
-                          <span>→</span>
-                        </div>
-                      </button>
-                    </div>
-
-                    <p className="text-center text-[10px] text-[#5C6650]/50 mt-2 italic">
-                      Powered by Hugging Face deepfake-detector-model-v1 & Gemini Vision AI
-                    </p>
+                      </div>
+                    ) : (
+                      <div className="text-[#5C6650]">
+                        <div className="text-4xl mb-3">🎬</div>
+                        <p className="text-[#232B1B] text-sm font-medium">Upload or Drop Video File</p>
+                        <p className="text-[#5C6650]/70 text-xs mt-1">MP4, WebM, MOV, AVI, MKV · Max 50 MB (60s sampling window)</p>
+                      </div>
+                    )}
                   </div>
+                  <input
+                    ref={videoRef}
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,.mp4,.webm,.mov,.avi,.mkv"
+                    className="hidden"
+                    onChange={(e) => setVideoFile(e.target.files[0] || null)}
+                  />
+                  {videoFile && (
+                    <button
+                      type="button"
+                      onClick={() => setVideoFile(null)}
+                      className="text-xs text-red-700 hover:underline mt-2 ml-1 font-medium bg-transparent border-none cursor-pointer"
+                    >
+                      {t('analyze.removeFile', 'Remove video')}
+                    </button>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

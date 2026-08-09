@@ -16,6 +16,9 @@ export const API_BASE_URL =
 /** POST /api/analyze — used for both text and URL analysis */
 export const ANALYZE_ENDPOINT = `${API_BASE_URL}/api/analyze`;
 
+/** POST /api/deepfake/image — used for deepfake image analysis */
+export const DEEPFAKE_IMAGE_ENDPOINT = `${API_BASE_URL}/api/deepfake/image`;
+
 /** Context menu item ID — must match between registration and click handler */
 export const CONTEXT_MENU_ID = 'satya-verify-selection';
 

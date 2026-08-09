@@ -912,10 +912,16 @@ export default function ResultsPage() {
     setFetchLoading(true);
     setFetchError('');
     getHistoryItem(paramCheckId)
-      .then(({ data }) => setFetchedResult(data))
+      .then(({ data }) => {
+        if (data && data.inputType === 'video') {
+          navigate('/video-analysis', { state: { preloadedResult: data } });
+          return;
+        }
+        setFetchedResult(data);
+      })
       .catch((err) => setFetchError(err.response?.data?.message || 'Failed to load saved report'))
       .finally(() => setFetchLoading(false));
-  }, [paramCheckId, location.state?.result]);
+  }, [paramCheckId, location.state?.result, navigate]);
 
   if (fetchLoading) {
     return (
