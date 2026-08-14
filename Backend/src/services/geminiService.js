@@ -1,16 +1,18 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GEMINI_API_KEY } = require('../config/env');
+const { GEMINI_API_KEY, GEMINI_API_KEY_2 } = require('../config/env');
 const logger = require('../config/logger');
 const { parseGeminiJSON, resolveLanguage } = require('../utils/helpers');
 
-
-
-// Use stable model identifiers.  Keep both configurable for deployments where
-// a model is temporarily unavailable or a key has restricted model access.
+// Use stable model identifiers.
 const PRIMARY_MODEL = process.env.GEMINI_PRIMARY_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || 'missing-key');
-logger.info('Gemini model configuration loaded', { primaryModel: PRIMARY_MODEL, fallbackModel: FALLBACK_MODEL });
+
+const apiKeys = [GEMINI_API_KEY, GEMINI_API_KEY_2].filter((k) => k && k.trim());
+logger.info('Gemini model and key configuration loaded', {
+  primaryModel: PRIMARY_MODEL,
+  fallbackModel: FALLBACK_MODEL,
+  totalApiKeysConfigured: apiKeys.length,
+});
 
 class GeminiProviderError extends Error {
   constructor(message, cause) {
@@ -32,7 +34,9 @@ function isServiceBlockedError(error) {
   return (
     message.includes('API_KEY_SERVICE_BLOCKED') ||
     message.includes('Requests to this API') ||
-    message.includes('403 Forbidden')
+    message.includes('403 Forbidden') ||
+    message.includes('429') ||
+    message.includes('quota')
   );
 }
 
@@ -76,11 +80,6 @@ async function withRetry(operation, label, maxAttempts = 2) {
 
 function getGeminiConfigurationIssue() {
   if (!GEMINI_API_KEY || !GEMINI_API_KEY.trim()) return 'GEMINI_API_KEY is missing.';
-  const key = GEMINI_API_KEY.trim();
-  // Google AI Studio supports legacy keys (AIza...) and newer keys (AQ....)
-  if (!/^(AIza[\w-]{20,}|AQ\.[\w.-]{20,})$/.test(key) && key.length < 20) {
-    return 'GEMINI_API_KEY format is invalid or too short.';
-  }
   return null;
 }
 
@@ -94,7 +93,7 @@ async function validateGeminiConfiguration() {
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(GEMINI_API_KEY)}`);
     if (!response.ok) {
       const detail = await response.text();
-      const issue = response.status === 401 ? 'Gemini rejected the credential. Use an AI Studio API key on Render, not an OAuth access token.' : `Gemini model discovery failed (${response.status}).`;
+      const issue = response.status === 401 ? 'Gemini rejected the credential.' : `Gemini model discovery failed (${response.status}).`;
       logger.error('[GEMINI] startup validation failed', { issue, status: response.status, detail: detail.slice(0, 300) });
       return { valid: false, issue };
     }
@@ -112,18 +111,30 @@ async function validateGeminiConfiguration() {
 
 async function generateWithModelFallback(parts, label, generationConfig) {
   const models = [...new Set([PRIMARY_MODEL, FALLBACK_MODEL])];
+  const keysToTry = apiKeys.length > 0 ? apiKeys : [GEMINI_API_KEY];
   let lastError;
-  for (const modelName of models) {
-    try {
-      const model = genAI.getGenerativeModel({ model: modelName, generationConfig });
-      const result = await withRetry(() => model.generateContent(parts), `${label} (${modelName})`);
-      return { result, modelName };
-    } catch (error) {
-      lastError = error;
-      logger.warn('Gemini model failed; trying fallback when available', { label, modelName, reason: getErrorMessage(error) });
+
+  for (let keyIdx = 0; keyIdx < keysToTry.length; keyIdx += 1) {
+    const apiKey = keysToTry[keyIdx];
+    const keyLabel = keyIdx === 0 ? 'Primary Key' : `Fallback Key #${keyIdx + 1}`;
+    const genAI = new GoogleGenerativeAI(apiKey);
+
+    for (const modelName of models) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName, generationConfig });
+        const result = await withRetry(() => model.generateContent(parts), `${label} (${modelName} via ${keyLabel})`);
+        return { result, modelName };
+      } catch (error) {
+        lastError = error;
+        logger.warn(`Gemini model ${modelName} failed on ${keyLabel}; trying fallback`, { label, modelName, keyLabel, reason: getErrorMessage(error) });
+      }
+    }
+    if (keyIdx < keysToTry.length - 1) {
+      logger.warn(`Switching to backup Gemini API key: ${keyLabel} -> Fallback Key #${keyIdx + 2}`);
     }
   }
-  throw new GeminiProviderError(`${label} unavailable across configured models`, lastError);
+
+  throw new GeminiProviderError(`${label} unavailable across configured models and API keys`, lastError);
 }
 
 function hasDevanagari(str) {

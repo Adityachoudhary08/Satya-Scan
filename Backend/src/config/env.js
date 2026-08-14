@@ -28,6 +28,7 @@ module.exports = {
   MONGO_URI: process.env.MONGO_URI,
   JWT_SECRET: process.env.JWT_SECRET,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GEMINI_API_KEY_2: process.env.GEMINI_API_KEY_2 || null,
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
   FACT_CHECK_API_KEY: process.env.FACT_CHECK_API_KEY || null,
   NODE_ENV: process.env.NODE_ENV || 'development',

@@ -213,9 +213,8 @@ async function analyzeVisualAuthenticity(imageBuffer, mimeType, exifData, select
       'Absence of generative diffusion micro-smoothing or synthetic rendering artifacts.',
     ];
 
-    // Ensure adequate evidence count matching confidence tier
-    if (status === 'AI Generated' || (status !== 'Real' && confidence >= 75)) {
-      status = 'AI Generated';
+    // Preserve Gemini Vision's verdict directly without artificial overrides
+    if (status === 'AI Generated') {
       const targetCount = confidence >= 90 ? 7 : 5;
       const seen = new Set(evidence.map(e => e.toLowerCase()));
       for (const candidate of aiGroundingPool) {
@@ -226,7 +225,7 @@ async function analyzeVisualAuthenticity(imageBuffer, mimeType, exifData, select
           seen.add(normalized);
         }
       }
-    } else if (status === 'Real') {
+    } else if (status === 'Real' || status === 'Likely Real') {
       const targetCount = 5;
       const seen = new Set(evidence.map(e => e.toLowerCase()));
       for (const candidate of realGroundingPool) {
@@ -236,21 +235,6 @@ async function analyzeVisualAuthenticity(imageBuffer, mimeType, exifData, select
           evidence.push(candidate);
           seen.add(normalized);
         }
-      }
-    } else if (evidence.length < 3) {
-      if (status === 'AI Edited' || status === 'Manipulated') {
-        evidence = [
-          'Digital composition inconsistencies observed across isolated subject layers.',
-          'Inconsistent noise grain and compression tables in localized edited regions.',
-          'Edge compositing artifacts observed along subject perimeter contours.',
-          'Lighting angle variation detected between foreground and background elements.',
-        ];
-      } else {
-        evidence = [
-          'Visual signals are inconclusive across pixel forensic layers.',
-          'Insufficient camera-specific noise signatures for definitive origin classification.',
-          'Subtle compression artifacts limit conclusive determination of generative vs. optical capture.',
-        ];
       }
     }
 

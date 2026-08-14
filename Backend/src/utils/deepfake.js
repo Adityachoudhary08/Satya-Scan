@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GEMINI_API_KEY } = require('../config/env');
+const { GEMINI_API_KEY, GEMINI_API_KEY_2 } = require('../config/env');
 const { parseGeminiJSON } = require('./helpers');
 
 /**
@@ -109,7 +109,8 @@ async function detectDeepfake(imageFilePath) {
  * @returns {Promise<{ detectionReason: string, suspiciousAreas: string[], authenticAreas: string[], manipulationTechnique: string, confidenceExplanation: string, recommendation: string } | null>}
  */
 async function analyzeDeepfakeWithAI(imageFilePath) {
-  if (!GEMINI_API_KEY) {
+  const keysToTry = [GEMINI_API_KEY, GEMINI_API_KEY_2].filter(k => k && k.trim());
+  if (!keysToTry.length) {
     console.error("GEMINI_API_KEY is missing in backend env.");
     return null;
   }
@@ -121,16 +122,17 @@ async function analyzeDeepfakeWithAI(imageFilePath) {
   ];
 
   let lastError;
-  for (const modelName of modelsToTry) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          generationConfig: {
-            responseMimeType: 'application/json',
-          },
-        });
+  for (const apiKey of keysToTry) {
+    for (const modelName of modelsToTry) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const genAI = new GoogleGenerativeAI(apiKey);
+          const model = genAI.getGenerativeModel({
+            model: modelName,
+            generationConfig: {
+              responseMimeType: 'application/json',
+            },
+          });
 
         const imageBuffer = fs.readFileSync(imageFilePath);
         const mimeType = getMimeType(imageFilePath);
@@ -176,6 +178,7 @@ Respond ONLY in this exact JSON format with no extra text:
         }
       }
     }
+  }
   }
 
   console.error("========== DEEPFAKE GEMINI API ERROR ==========");

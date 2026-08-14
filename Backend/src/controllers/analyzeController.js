@@ -90,41 +90,8 @@ async function analyze(req, res, next) {
         return res.status(400).json({ message: 'Image file is required' });
       }
 
-      // Check SHA256 image hash cache for deterministic result
+      // Calculate image hash for history record saving
       const imageHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-      const cachedImageCheck = await Check.findOne({
-        imageHash,
-        inputType: 'image',
-        responseLanguage: resolveLanguage(selectedLanguage),
-      }).sort({ createdAt: -1 }).lean();
-
-      if (cachedImageCheck && cachedImageCheck.visualAuthenticity && cachedImageCheck.visualAuthenticity.status !== 'Analysis Limited' && cachedImageCheck.visualAuthenticity.status !== 'Limited Analysis') {
-        logger.info('IMAGE HASH CACHE HIT: Returning deterministic previous verdict', { imageHash, checkId: cachedImageCheck._id });
-        const cachedResponse = {
-          success: true,
-          inputType: 'image',
-          visualAuthenticity: cachedImageCheck.visualAuthenticity,
-          ocrClaimVerification: cachedImageCheck.ocrClaimVerification,
-          verdict: cachedImageCheck.visualAuthenticity?.status || cachedImageCheck.imageVerdict || 'Uncertain',
-          confidence: cachedImageCheck.visualAuthenticity?.confidence ?? cachedImageCheck.imageConfidence ?? 50,
-          evidence: cachedImageCheck.visualAuthenticity?.evidence || [],
-          findings: cachedImageCheck.visualAuthenticity?.evidence || [],
-          extractedText: cachedImageCheck.ocrClaimVerification?.extractedText || null,
-          claimVerdict: cachedImageCheck.ocrClaimVerification?.verdict || null,
-          claimConfidence: cachedImageCheck.ocrClaimVerification?.confidence || null,
-          claimReason: cachedImageCheck.ocrClaimVerification?.reason || null,
-          sources: cachedImageCheck.ocrClaimVerification?.sources || [],
-          hasMeaningfulClaim: cachedImageCheck.ocrClaimVerification?.hasMeaningfulClaim ?? false,
-          language: cachedImageCheck.responseLanguage,
-          detectedLanguage: cachedImageCheck.responseLanguage,
-          responseLanguage: cachedImageCheck.responseLanguage,
-          processingTime: '0.0s (Cached)',
-          isCached: true,
-          checkId: cachedImageCheck._id,
-        };
-        console.log("ENTIRE API RESPONSE BEFORE SENDING (CACHED):", JSON.stringify(cachedResponse, null, 2));
-        return res.json(cachedResponse);
-      }
 
       result = await verifyImage(
         req.file.buffer,

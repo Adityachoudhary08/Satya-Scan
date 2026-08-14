@@ -20,78 +20,54 @@ function buildVisualAuthenticityPrompt(metadataInfo, language) {
 
 MISSION:
 Determine whether the uploaded image is:
-1. REAL
-2. AI GENERATED
-3. AI EDITED
-4. UNCERTAIN
+1. REAL (captured by a physical camera, lens, or smartphone)
+2. AI GENERATED (synthesized by Midjourney, Stable Diffusion, DALL-E, Sora, Flux)
+3. AI EDITED (real photograph with localized AI additions or face swaps)
+4. UNCERTAIN (genuinely inconclusive visual signals)
 
 Analyze ONLY the visual pixel evidence and composition of the image itself.
 DO NOT: Fact-check text claims, perform OCR verification, or search external web sources.
 
-Modern AI systems generate realistic skin pores, hair strands, text, lighting, and anatomy.
-THE ABSENCE OF OBVIOUS ARTIFACTS IS NOT EVIDENCE OF AUTHENTICITY.
+IMPORTANT: Give equal weight to authentic camera signatures. If an image displays organic skin pores, realistic JPEG noise, authentic depth of field, or natural lighting, classify it as REAL.
+Do NOT assume an image is AI generated unless clear synthetic diffusion artifacts or waxy rendering are observed.
+
+--------------------------------------------------
+CRITICAL ANTI-FALSE-POSITIVE RULES:
+--------------------------------------------------
+1. PRESS / JOURNALISTIC PHOTOS: Real news photographs often contain high-density crowds, action motion blur, low-resolution background faces, or heavy JPEG compression from web publishing.
+2. DO NOT classify background motion blur, distance out-of-focus faces, or low-resolution crowd pixels as "AI diffusion melting" or "anatomical inconsistencies".
+3. News logo overlays (e.g. CSR Journal, newsspin, news channel watermarks) strongly indicate legitimate press photography.
+4. DEFAULT TO "Real" if the image shows genuine motion dynamics, coherent crowd clothing, authentic environmental lighting, and standard optical lens perspective.
 
 --------------------------------------------------
 PHASE 1 — REAL CAMERA EVIDENCE
 --------------------------------------------------
 Look for evidence that the image was captured by a physical optical camera:
+- Real-world action dynamics and authentic physical motion blur
+- Coherent crowd clothing, natural fabric folds, and believable proportions
 - Natural optical sensor Bayer noise in flat/dark regions
 - Realistic JPEG compression quantization
 - Consistent lens blur and authentic depth-of-field bokeh
 - Physically plausible optical motion blur
 - Natural lighting falloff matching physical light sources
-- Physically consistent corneal and surface reflections
 - Organic skin imperfections, pores, and natural hair randomness
 
 --------------------------------------------------
 PHASE 2 — DEEP AI GENERATION FORENSICS
 --------------------------------------------------
-Actively inspect and identify image-specific generative markers:
-
-1. SKIN & FACE TEXTURE:
-- Over-smoothed or waxy skin lacking micro-pore depth
-- Inconsistent pore distributions across forehead/cheeks
-- Unnatural teeth alignment, shape, or enamel reflections
-- Subtle eye pupil asymmetry or mismatched reflection highlights
-
-2. HAIR STRUCTURE & TRANSITIONS:
-- Merged, blurred, or clumped hair strands along perimeters
-- Repetitive generative strand patterns or impossible hair boundaries
-- Unnatural sharp-to-blur transitions around hairline and ears
-
-3. LIGHTING & REFLECTIONS:
-- Conflicting light directions between subjects and background
-- Physically impossible cast shadows or missing ambient occlusion
-- Overly uniform, studio-like lighting gradients across surfaces
-
-4. BACKGROUND & BLUR RENDERING:
-- Diffusion-style background smoothing rather than true optical lens bokeh
-- Warped, melting, or nonsensical background structures
-- Halos or unnatural edge blending around foreground subjects
-
-5. COMPOSITION & GRAPHICS:
-- Poster-style synthetic visual composition, thumbnail collage style
-- Subtle pixel micro-smoothing and absence of optical sensor noise
-- Digital blending signatures typical of generative diffusion models
+Only flag AI GENERATED if there are unmistakable generative synthesis signatures on primary foreground subjects:
+- Severe waxy rendering on main foreground faces
+- Impossible anatomical mutations (e.g. 6 fingers on a clearly focused hand)
+- Synthetic text rendering that forms gibberish glyphs (NOT standard printed text overlays)
+- Unnatural sharp-to-blur transitions around foreground hairlines
 
 --------------------------------------------------
-PHASE 3 — SPECIFICITY & GROUNDING RULES
+PHASE 3 — CLASSIFICATION & CONFIDENCE
 --------------------------------------------------
-- CRITICAL: Never output generic one-word findings (e.g. "synthetic texture", "diffusion artifacts").
-- Every finding must be a concrete, descriptive sentence detailing the visual observation.
-- If AI GENERATED (or confidence >= 75%): Provide 5 to 8 specific forensic findings.
-  If confidence is very high (90%+): Provide 6 to 8 detailed findings.
-- If REAL: Provide 4 to 6 concrete camera observations supporting physical capture.
-- If AI EDITED: Provide 4 to 6 observations pointing to edited vs. original regions.
-- Do NOT generate speculative claims such as "face swap detected" or "identity replacement" unless physical boundary splicing is obvious.
-
---------------------------------------------------
-PHASE 4 — CLASSIFICATION & CONFIDENCE
---------------------------------------------------
-REAL: 80-100 (strong camera evidence, minimal generative signatures)
-AI GENERATED: 80-100 (diffusion patterns, synthetic composition, micro-smoothing)
-AI EDITED: 70-100 (real photo with AI additions, replacements, or manipulations)
-UNCERTAIN: 40-70 (genuinely inconclusive evidence; never exceed 70)
+REAL: 80-100 (authentic action photo, legitimate news graphic overlay, natural crowd dynamics)
+AI GENERATED: 80-100 (unmistakable AI synthesis artifacts on primary subjects)
+AI EDITED: 70-100 (real photo with localized AI additions or face swaps)
+UNCERTAIN: 40-70 (genuinely inconclusive evidence)
 
 ${languageInstruction}
 
