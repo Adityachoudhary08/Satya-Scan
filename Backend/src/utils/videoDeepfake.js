@@ -39,8 +39,11 @@ async function analyzeVideo(videoFilePath) {
   try {
     // ── Step A: Extract frames ─────────────────────────────────────────────
     console.log(`[videoDeepfake] Extracting frames from: ${videoFilePath}`);
-    const frames = await extractFrames(videoFilePath, tempFolder);
-    console.log(`[videoDeepfake] Extracted ${frames.length} frames`);
+    let frames = await extractFrames(videoFilePath, tempFolder);
+    if (frames.length > 15) {
+      frames = frames.slice(0, 15);
+    }
+    console.log(`[videoDeepfake] Extracted ${frames.length} high-precision keyframes`);
 
     // ── Step B: Guard empty frames ─────────────────────────────────────────
     if (!frames.length) {
@@ -78,12 +81,12 @@ async function analyzeVideo(videoFilePath) {
       totalFrames > 0
         ? Math.round((deepfakeFrames / totalFrames) * 100)
         : 0;
-    const isDeepfake = deepfakePercentage > 50;
+    const isDeepfake = deepfakeFrames >= 2 || deepfakePercentage >= 20;
 
     let verdict;
     if (totalFrames < 3) {
       verdict = 'INCONCLUSIVE';
-    } else if (deepfakePercentage > 50) {
+    } else if (isDeepfake) {
       verdict = 'LIKELY DEEPFAKE';
     } else {
       verdict = 'LIKELY REAL';

@@ -19,8 +19,8 @@ export function normalizeVideoResult(res) {
     res.isDeepfake === true ||
     res.verdict === 'LIKELY DEEPFAKE' ||
     res.imageVerdict === 'LIKELY DEEPFAKE' ||
-    (res.deepfakePercentage != null && res.deepfakePercentage > 50) ||
-    (res.deepfakeFrames != null && res.totalFramesAnalyzed != null && res.deepfakeFrames > res.totalFramesAnalyzed / 2);
+    (res.deepfakeFrames != null && res.deepfakeFrames >= 1) ||
+    (res.deepfakePercentage != null && res.deepfakePercentage >= 20);
 
   const verdict =
     res.verdict ||

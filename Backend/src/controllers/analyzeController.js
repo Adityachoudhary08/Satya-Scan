@@ -98,7 +98,7 @@ async function analyze(req, res, next) {
         responseLanguage: resolveLanguage(selectedLanguage),
       }).sort({ createdAt: -1 }).lean();
 
-      if (cachedImageCheck && cachedImageCheck.visualAuthenticity) {
+      if (cachedImageCheck && cachedImageCheck.visualAuthenticity && cachedImageCheck.visualAuthenticity.status !== 'Analysis Limited' && cachedImageCheck.visualAuthenticity.status !== 'Limited Analysis') {
         logger.info('IMAGE HASH CACHE HIT: Returning deterministic previous verdict', { imageHash, checkId: cachedImageCheck._id });
         const cachedResponse = {
           success: true,

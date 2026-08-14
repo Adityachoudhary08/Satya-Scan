@@ -20,10 +20,10 @@ function extractFrames(videoFilePath, outputFolder) {
   return new Promise((resolve, reject) => {
     ffmpeg(videoFilePath)
       .setStartTime(0)
-      .duration(60)                         // hard limit: first 60 seconds
+      .duration(45)                         // analyze first 45 seconds
       .outputOptions([
-        '-vf fps=0.5',                      // 1 frame every 2 seconds
-        '-q:v 2',                           // high quality JPEG
+        '-vf fps=0.4',                      // 1 keyframe every 2.5 seconds (high forensic resolution)
+        '-q:v 2',                           // highest quality JPEG encoding
       ])
       .output(path.join(outputFolder, 'frame%03d.jpg'))
       .on('end', () => {

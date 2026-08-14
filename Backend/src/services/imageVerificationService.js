@@ -275,11 +275,10 @@ async function analyzeVisualAuthenticity(imageBuffer, mimeType, exifData, select
     // Only Gemini can make visual observations. Do not pad its evidence with
     // templates or turn an uncertain result into an AI-generated verdict.
     evidence = rawEvidenceList.slice(0, 8);
-    const requiredFindings = ['AI Generated', 'Real', 'Likely Real', 'AI Edited', 'Deepfake'].includes(status) ? 4 : 0;
-    if (evidence.length < requiredFindings) {
+    if (evidence.length === 0) {
       status = 'Analysis Limited';
       confidence = Math.min(confidence, 50);
-      evidence = evidence.length ? evidence : ['Vision analysis returned too little image-specific evidence for a reliable verdict.'];
+      evidence = ['Vision analysis returned too little image-specific evidence for a reliable verdict.'];
     }
 
     logger.info('[Image Dual Architecture] Module 1 complete via Gemini Vision', { status, confidence, evidenceCount: evidence.length, model: raw._model, analysisMode: 'gemini_vision' });

@@ -116,57 +116,65 @@ async function analyzeDeepfakeWithAI(imageFilePath) {
 
   const modelsToTry = [
     process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
     'gemini-3.5-flash',
-    'gemini-flash-latest'
   ];
 
   let lastError;
   for (const modelName of modelsToTry) {
-    try {
-      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        generationConfig: {
-          responseMimeType: 'application/json',
-        },
-      });
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            responseMimeType: 'application/json',
+          },
+        });
 
-      const imageBuffer = fs.readFileSync(imageFilePath);
-      const mimeType = getMimeType(imageFilePath);
+        const imageBuffer = fs.readFileSync(imageFilePath);
+        const mimeType = getMimeType(imageFilePath);
 
-      const imagePart = {
-        inlineData: {
-          data: imageBuffer.toString('base64'),
-          mimeType,
-        },
-      };
+        const imagePart = {
+          inlineData: {
+            data: imageBuffer.toString('base64'),
+            mimeType,
+          },
+        };
 
-      const prompt = `You are a forensic deepfake detection expert. 
-Analyze this image carefully for signs of AI manipulation or deepfake generation. Look for:
-- Unnatural skin texture or blurring around facial edges
-- Inconsistent lighting or shadows on face
-- Unusual eye reflections or asymmetry
-- Hair/background boundary artifacts
-- Unnatural facial proportions
-- Compression artifacts typical of GAN-generated images
-- Any other visual inconsistencies
+        const prompt = `You are a forensic deepfake and AI-generated media detection expert. 
+Analyze this image/video frame carefully for signs of AI generation, synthetic media, face swaps, or deepfake manipulation. Look for:
+- Generative AI synthetic artifacts (Sora, Runway, Pika, Kling, Midjourney, Stable Diffusion, GANs)
+- Unnatural facial proportions, teeth alignment, or eye reflection specular mismatches
+- Unnatural skin micro-smoothing or lack of optical sensor noise
+- Hair/background boundary merging and unnatural edge blending
+- Lighting or shadow directionality mismatches across subject layers
 
-Respond ONLY in this exact JSON format, no extra text:
+Respond ONLY in this exact JSON format with no extra text:
 {
-  "detectionReason": "one paragraph explaining overall verdict",
-  "suspiciousAreas": ["area 1 with detail", "area 2 with detail"],
-  "authenticAreas": ["area 1", "area 2"],
-  "manipulationTechnique": "likely technique used if fake, or Authentic if real",
-  "confidenceExplanation": "why you are confident in this verdict",
-  "recommendation": "what user should do with this information"
+  "isDeepfake": true,
+  "confidence": 85,
+  "detectionReason": "detailed explanation of overall verdict",
+  "suspiciousAreas": ["suspicious feature 1", "suspicious feature 2"],
+  "authenticAreas": ["authentic feature 1"],
+  "manipulationTechnique": "AI Generation (or Deepfake Face Swap, or Authentic if real)",
+  "confidenceExplanation": "explanation of confidence",
+  "recommendation": "recommendation for user"
 }`;
 
-      const result = await model.generateContent([prompt, imagePart]);
-      const text = result.response.text();
-      return parseGeminiJSON(text);
-    } catch (error) {
-      console.warn(`Gemini analysis failed with model ${modelName}, trying fallback...`);
-      lastError = error;
+        const result = await model.generateContent([prompt, imagePart]);
+        const text = result.response.text();
+        return parseGeminiJSON(text);
+      } catch (error) {
+        lastError = error;
+        const msg = error?.message || '';
+        if (msg.includes('503') || msg.includes('Service Unavailable') || msg.includes('429')) {
+          console.warn(`Gemini model ${modelName} attempt ${attempt} hit rate limit / 503, retrying in 500ms...`);
+          await new Promise((res) => setTimeout(res, 500 * attempt));
+        } else {
+          break; // Try next model for hard errors (404/invalid model name)
+        }
+      }
     }
   }
 
@@ -205,37 +213,30 @@ async function getFullDeepfakeAnalysis(imageFilePath) {
   if (hfOk) {
     isDeepfake = hfResult.isDeepfake;
     confidence = hfResult.confidence;
-    if (hfResult.isDeepfake) {
-      verdict = hfResult.confidence > 70 ? "LIKELY DEEPFAKE" : "INCONCLUSIVE";
-    } else {
-      verdict = hfResult.confidence > 70 ? "LIKELY REAL" : "INCONCLUSIVE";
-    }
   }
 
   // 2. Incorporate Gemini Vision analysis
-  let isGeminiFake = null;
   if (geminiOk) {
     const tech = (geminiResult.manipulationTechnique || '').toLowerCase();
-    isGeminiFake = tech.length > 0 && !tech.includes('authentic') && !tech.includes('real') && !tech.includes('original') && !tech.includes('none');
+    const reason = (geminiResult.detectionReason || '').toLowerCase();
     
-    if (isDeepfake === null) {
-      isDeepfake = isGeminiFake;
-    }
+    // Detect synthetic AI signatures from technique, reason, or explicit boolean
+    const hasAiSignatures = /ai|synthetic|deepfake|sora|runway|pika|kling|midjourney|diffusion|generated|face-swap|manipulat/i.test(tech + ' ' + reason);
+    const isGeminiFake = geminiResult.isDeepfake === true || (hasAiSignatures && !tech.includes('authentic') && !tech.includes('real'));
+    const geminiConfidence = typeof geminiResult.confidence === 'number' ? geminiResult.confidence : (isGeminiFake ? 88 : 75);
 
-    if (hfOk) {
-      // Re-evaluate if they agree or disagree
-      if (isDeepfake && isGeminiFake) {
-        verdict = "LIKELY DEEPFAKE";
-      } else if (!isDeepfake && !isGeminiFake) {
-        verdict = "LIKELY REAL";
-      } else {
-        // Disagreement or weak scores
-        verdict = "INCONCLUSIVE";
-      }
-    } else {
-      // HF failed, trust Gemini entirely
-      verdict = isGeminiFake ? "LIKELY DEEPFAKE" : "LIKELY REAL";
+    if (isDeepfake === null || isGeminiFake) {
+      isDeepfake = isGeminiFake;
+      confidence = geminiConfidence;
     }
+  }
+
+  if (isDeepfake === true) {
+    verdict = "LIKELY DEEPFAKE";
+  } else if (isDeepfake === false) {
+    verdict = "LIKELY REAL";
+  } else {
+    verdict = "INCONCLUSIVE";
   }
 
   const analyzedBy = [];
